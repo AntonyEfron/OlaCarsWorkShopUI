@@ -1,0 +1,99 @@
+{
+    "common": {
+        "dashboard": "Dashboard",
+        "workOrders": "Work Orders",
+        "createWorkOrder": "Create Work Order",
+        "profile": "Profile",
+        "logout": "Log Out",
+        "cancel": "Cancel",
+        "save": "Save",
+        "loading": "Loading...",
+        "error": "Error",
+        "success": "Success",
+        "add": "Add",
+        "addItem": "Add Item"
+    },
+    "dashboard": {
+        "title": "Workshop Dashboard",
+        "subtitle": "Overview of current work orders and workshop activity",
+        "groups": {
+            "active": "Active Jobs",
+            "awaiting": "Awaiting Action",
+            "qc": "QC / Release",
+            "completed": "Completed"
+        },
+        "recent": "Recent Work Orders",
+        "viewAll": "View All →",
+        "table": {
+            "wo": "WO #",
+            "vehicle": "Vehicle",
+            "type": "Type",
+            "priority": "Priority",
+            "status": "Status",
+            "updated": "Updated"
+        }
+    },
+    "workOrders": {
+        "list": {
+            "title": "Work Orders",
+            "searchPlaceholder": "Search by WO#, VIN, or Plate...",
+            "empty": "No work orders found",
+            "new": "New Work Order"
+        },
+        "create": {
+            "title": "Create Work Order",
+            "subtitle": "New work order will be created in DRAFT status",
+            "type": "Work Order Type",
+            "vehicle": "Vehicle",
+            "priority": "Priority",
+            "fault": "Fault Description",
+            "faultPlaceholder": "Describe the fault or work required...",
+            "labourHrs": "Est. Labour Hours",
+            "partsCost": "Est. Parts Cost",
+            "notes": "Additional Notes",
+            "notesPlaceholder": "Any additional notes...",
+            "submit": "Create Work Order",
+            "creating": "Creating...",
+            "validation": "Please fill in all required fields",
+            "noContext": "Branch context missing. Please try logging out and in again."
+        },
+        "detail": {
+            "overview": "Overview",
+            "tasks": "Tasks",
+            "parts": "Parts",
+            "labour": "Labour",
+            "qc": "QC & Photos",
+            "history": "Status History",
+            "actions": "Progress Status",
+            "release": "Release Vehicle",
+            "details": "Details",
+            "faultCost": "Fault & Cost",
+            "placeholder": "No history yet",
+            "addPhoto": "Add Photo",
+            "photoPlaceholder": "Photo URL"
+        },
+        "types": {
+            "preventive": "Preventive Maintenance",
+            "corrective": "Corrective Repair",
+            "preEntry": "Pre-Entry Inspection",
+            "accident": "Accident Repair",
+            "returnInspection": "Return Inspection",
+            "recall": "Recall",
+            "safetyPrep": "Safety Preparation",
+            "wearItem": "Wear Item Replacement"
+        },
+        "priorities": {
+            "low": "Low",
+            "medium": "Medium",
+            "high": "High",
+            "critical": "Critical"
+        },
+        "phases": {
+            "registration": "Registration",
+            "reception": "Reception",
+            "repair": "Repair",
+            "qc": "QC",
+            "release": "Release"
+        }
+    }
+}

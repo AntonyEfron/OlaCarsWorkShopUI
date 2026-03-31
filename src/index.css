@@ -1,0 +1,313 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════════
+   GLOBAL CSS VARIABLES
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --brand-lime: #C8E600;
+  --brand-lime-dark: #a8c100;
+  --brand-lime-light: #d8f200;
+  --brand-black: #0A0A0A;
+  --white: #FFFFFF;
+  --alert-red: #E74C3C;
+  --warn-orange: #E67E22;
+}
+
+:root[data-theme='dark'] {
+  --bg-main: #111111;
+  --bg-card: #1C1C1C;
+  --bg-sidebar: #0A0A0A;
+  --bg-topbar: #151515;
+  --bg-input: #111111;
+  --text-main: #FFFFFF;
+  --text-muted: #9CA3AF;
+  --text-dim: #6B7280;
+  --border-main: #2A2A2A;
+  --sidebar-text: #9CA3AF;
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme='light'] {
+  --bg-main: #FFFFFF;
+  --bg-card: #F9FAFB;
+  --bg-sidebar: #F3F4F6;
+  --bg-topbar: #FFFFFF;
+  --bg-input: #F3F4F6;
+  --text-main: #0A0A0A;
+  --text-muted: #4B5563;
+  --text-dim: #9CA3AF;
+  --border-main: #E5E7EB;
+  --sidebar-text: #374151;
+  --sidebar-hover: rgba(0, 0, 0, 0.05);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BASE RESET
+   ══════════════════════════════════════════════════════════════ */
+@layer base {
+  *, *::before, *::after {
+    @apply box-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-size: 16px;
+    overflow-x: hidden;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    @apply antialiased leading-relaxed overflow-x-hidden;
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    transition: background-color 0.3s, color 0.3s;
+    /* Tablet touch optimizations */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+
+  button {
+    font-family: inherit;
+  }
+
+  a {
+    @apply text-inherit no-underline;
+  }
+
+  ul {
+    @apply list-none m-0 p-0;
+  }
+
+  img {
+    @apply max-w-full h-auto;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--bg-main);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--brand-lime);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--brand-lime-dark);
+  }
+
+  ::selection {
+    background: var(--brand-lime);
+    color: var(--brand-black);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REUSABLE COMPONENT LAYER
+   ══════════════════════════════════════════════════════════════ */
+@layer components {
+
+  /* ── Buttons (touch-optimized with larger tap targets) ───── */
+  .btn-primary {
+    @apply relative inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm cursor-pointer border-none overflow-hidden transition-all duration-200;
+    background-color: var(--brand-lime);
+    color: var(--brand-black);
+    min-height: 44px; /* Apple HIG touch target */
+  }
+
+  .btn-primary:hover {
+    box-shadow: 0 0 20px rgba(200, 230, 0, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 0 10px rgba(200, 230, 0, 0.2);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm cursor-pointer bg-transparent transition-all duration-200;
+    border: 1.5px solid var(--border-main);
+    color: var(--text-main);
+    min-height: 44px;
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--brand-lime);
+    color: var(--brand-lime);
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm cursor-pointer border-none transition-all duration-200;
+    background-color: var(--alert-red);
+    color: white;
+    min-height: 44px;
+  }
+
+  .btn-danger:hover {
+    opacity: 0.9;
+  }
+
+  .btn-icon {
+    @apply inline-flex items-center justify-center rounded-xl cursor-pointer transition-all duration-200;
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid var(--border-main);
+    background: var(--bg-card);
+    color: var(--text-main);
+  }
+
+  .btn-icon:hover {
+    border-color: var(--brand-lime);
+    color: var(--brand-lime);
+  }
+
+  /* ── Glass card ──────────────────────────────────────────── */
+  .glass-card {
+    @apply backdrop-blur-md rounded-2xl;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-main);
+  }
+
+  /* ── Input fields (tablet-friendly) ─────────────────────── */
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl text-sm outline-none transition-all duration-200;
+    background-color: var(--bg-input);
+    border: 1.5px solid var(--border-main);
+    color: var(--text-main);
+    min-height: 44px;
+  }
+
+  .input-field:focus {
+    border-color: var(--brand-lime);
+    box-shadow: 0 0 0 3px rgba(200, 230, 0, 0.1);
+  }
+
+  .input-field::placeholder {
+    color: var(--text-dim);
+  }
+
+  /* ── Status badges ──────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider;
+  }
+
+  .badge-lime {
+    background: rgba(200, 230, 0, 0.15);
+    color: var(--brand-lime);
+    border: 1px solid rgba(200, 230, 0, 0.3);
+  }
+
+  .badge-red {
+    background: rgba(231, 76, 60, 0.15);
+    color: #E74C3C;
+    border: 1px solid rgba(231, 76, 60, 0.3);
+  }
+
+  .badge-orange {
+    background: rgba(230, 126, 34, 0.15);
+    color: #E67E22;
+    border: 1px solid rgba(230, 126, 34, 0.3);
+  }
+
+  .badge-blue {
+    background: rgba(52, 152, 219, 0.15);
+    color: #3498DB;
+    border: 1px solid rgba(52, 152, 219, 0.3);
+  }
+
+  .badge-gray {
+    background: rgba(107, 114, 128, 0.15);
+    color: #6B7280;
+    border: 1px solid rgba(107, 114, 128, 0.3);
+  }
+
+  .badge-green {
+    background: rgba(39, 174, 96, 0.15);
+    color: #27AE60;
+    border: 1px solid rgba(39, 174, 96, 0.3);
+  }
+
+  /* ── Tab navigation (touch-friendly) ────────────────────── */
+  .tab-nav {
+    @apply flex gap-1 p-1 rounded-xl overflow-x-auto;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-main);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    @apply flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 whitespace-nowrap;
+    color: var(--text-muted);
+    min-height: 40px;
+  }
+
+  .tab-btn:hover {
+    color: var(--text-main);
+  }
+
+  .tab-btn.active {
+    background-color: var(--brand-lime);
+    color: var(--brand-black);
+    font-weight: 600;
+  }
+
+  /* ── Stat card ──────────────────────────────────────────── */
+  .stat-card {
+    @apply glass-card p-5 flex flex-col gap-2;
+  }
+
+  .stat-card .stat-value {
+    @apply text-3xl font-bold;
+    color: var(--text-main);
+  }
+
+  .stat-card .stat-label {
+    @apply text-sm font-medium;
+    color: var(--text-muted);
+  }
+
+  /* ── Table ──────────────────────────────────────────────── */
+  .data-table {
+    @apply w-full text-sm;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .data-table th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-main);
+  }
+
+  .data-table td {
+    @apply px-4 py-4;
+    border-bottom: 1px solid var(--border-main);
+    color: var(--text-main);
+  }
+
+  .data-table tbody tr {
+    @apply transition-colors duration-150;
+  }
+
+  .data-table tbody tr:hover {
+    background-color: var(--sidebar-hover);
+  }
+
+  /* ── Modal overlay ──────────────────────────────────────── */
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    @apply glass-card p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto;
+    animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}

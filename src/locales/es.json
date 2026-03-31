@@ -1,0 +1,99 @@
+{
+    "common": {
+        "dashboard": "Panel de Control",
+        "workOrders": "Órdenes de Trabajo",
+        "createWorkOrder": "Crear Orden de Trabajo",
+        "profile": "Perfil",
+        "logout": "Cerrar Sesión",
+        "cancel": "Cancelar",
+        "save": "Guardar",
+        "loading": "Cargando...",
+        "error": "Error",
+        "success": "Éxito",
+        "add": "Agregar",
+        "addItem": "Agregar Item"
+    },
+    "dashboard": {
+        "title": "Panel de Control",
+        "subtitle": "Descripción general de las órdenes de trabajo actuales y la actividad del taller",
+        "groups": {
+            "active": "Trabajos Activos",
+            "awaiting": "Esperando Acción",
+            "qc": "QC / Entrega",
+            "completed": "Completados"
+        },
+        "recent": "Órdenes de Trabajo Recientes",
+        "viewAll": "Ver Todo →",
+        "table": {
+            "wo": "WO #",
+            "vehicle": "Vehículo",
+            "type": "Tipo",
+            "priority": "Prioridad",
+            "status": "Estado",
+            "updated": "Actualizado"
+        }
+    },
+    "workOrders": {
+        "list": {
+            "title": "Órdenes de Trabajo",
+            "searchPlaceholder": "Buscar por WO#, VIN o Placa...",
+            "empty": "No se encontraron órdenes de trabajo",
+            "new": "Nueva Orden de Trabajo"
+        },
+        "create": {
+            "title": "Crear Orden de Trabajo",
+            "subtitle": "La nueva orden se creará en estado BORRADOR",
+            "type": "Tipo de Orden",
+            "vehicle": "Vehículo",
+            "priority": "Prioridad",
+            "fault": "Descripción del Fallo",
+            "faultPlaceholder": "Describa el fallo o el trabajo requerido...",
+            "labourHrs": "Mano de Obra Est. (Hrs)",
+            "partsCost": "Costo Est. de Repuestos",
+            "notes": "Notas Adicionales",
+            "notesPlaceholder": "Cualquier nota adicional...",
+            "submit": "Crear Orden de Trabajo",
+            "creating": "Creando...",
+            "validation": "Por favor, complete todos los campos requeridos",
+            "noContext": "Falta el contexto por sucursal. Intente cerrar sesión e iniciarla nuevamente."
+        },
+        "detail": {
+            "overview": "Resumen",
+            "tasks": "Tareas",
+            "parts": "Repuestos",
+            "labour": "Mano de Obra",
+            "qc": "Control de Calidad y Fotos",
+            "history": "Historial de Estado",
+            "actions": "Progresar Estado",
+            "release": "Entregar Vehículo",
+            "details": "Detalles",
+            "faultCost": "Fallo y Costo",
+            "placeholder": "Sin historial aún",
+            "addPhoto": "Agregar Foto",
+            "photoPlaceholder": "URL de la Foto"
+        },
+        "types": {
+            "preventive": "Mantenimiento Preventivo",
+            "corrective": "Reparación Correctiva",
+            "preEntry": "Inspección Pre-Entrada",
+            "accident": "Reparación por Accidente",
+            "returnInspection": "Inspección de Retorno",
+            "recall": "Retirada/Recall",
+            "safetyPrep": "Preparación de Seguridad",
+            "wearItem": "Reemplazo de Desgaste"
+        },
+        "priorities": {
+            "low": "Baja",
+            "medium": "Media",
+            "high": "Alta",
+            "critical": "Crítica"
+        },
+        "phases": {
+            "registration": "Registro",
+            "reception": "Recepción",
+            "repair": "Reparación",
+            "qc": "QC",
+            "release": "Entrega"
+        }
+    }
+}
