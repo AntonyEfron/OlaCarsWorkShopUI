@@ -7,10 +7,11 @@ import {
     User,
     LogOut,
     Wrench,
+    Users,
     ChevronLeft,
     ChevronRight,
 } from 'lucide-react';
-import { logout, getUser } from '../utils/auth';
+import { logout, getUser, getUserRole } from '../utils/auth';
 
 interface SidebarProps {
     isCollapsed: boolean;
@@ -23,12 +24,22 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     const user = getUser();
     const displayName = (user?.fullName as string) || 'Workshop Staff';
 
-    const navItems = [
+    const role = getUserRole();
+    const isManager = role === 'workshopmanager';
+
+    const baseNavItems = [
         { path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
         { path: '/work-orders', icon: ClipboardList, label: t('common.workOrders') },
         { path: '/work-orders/create', icon: PlusCircle, label: t('workOrders.list.new') },
-        { path: '/profile', icon: User, label: t('common.profile') },
     ];
+
+    if (isManager) {
+        baseNavItems.push({ path: '/manage-staff', icon: Users, label: t('manageStaff.title', 'Manage Staff') });
+    }
+
+    baseNavItems.push({ path: '/profile', icon: User, label: t('common.profile') });
+
+    const navItems = baseNavItems;
 
     const handleLogout = () => {
         logout();
@@ -71,7 +82,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                         {displayName}
                     </p>
                     <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        Technician
+                        {isManager ? 'Workshop Manager' : 'Technician'}
                     </p>
                 </div>
             )}

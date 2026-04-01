@@ -11,7 +11,9 @@
         "error": "Error",
         "success": "Éxito",
         "add": "Agregar",
-        "addItem": "Agregar Item"
+        "addItem": "Agregar Item",
+        "created": "Creado",
+        "updated": "Actualizado"
     },
     "dashboard": {
         "title": "Panel de Control",

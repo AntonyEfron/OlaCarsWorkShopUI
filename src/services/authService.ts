@@ -21,6 +21,13 @@ export const workshopStaffLogin = async (credentials: LoginCredentials): Promise
     return { ...data, token };
 };
 
+export const workshopManagerLogin = async (credentials: LoginCredentials): Promise<LoginResponse> => {
+    const response = await api.post<LoginResponse>('/api/workshop-manager/login', credentials);
+    const data = response.data;
+    const token = (data.token || data.accessToken) as string;
+    return { ...data, token };
+};
+
 export const refreshStaffToken = async (token: string): Promise<LoginResponse> => {
     const response = await api.post<LoginResponse>('/api/workshop-staff/refresh-token', { token });
     return response.data;

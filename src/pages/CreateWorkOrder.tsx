@@ -46,12 +46,23 @@ const CreateWorkOrder = () => {
         faultDescription: '',
         estimatedLabourHours: '',
         estimatedPartsCost: '',
+        estimatedTotalCost: '',
         notes: '',
     });
 
     useEffect(() => {
         loadVehicles();
     }, []);
+
+    // Auto-calculate estimate
+    useEffect(() => {
+        const hours = Number(form.estimatedLabourHours) || 0;
+        const parts = Number(form.estimatedPartsCost) || 0;
+        const calculated = (hours * 50) + parts;
+        if (calculated > 0) {
+            setForm(prev => ({ ...prev, estimatedTotalCost: calculated.toString() }));
+        }
+    }, [form.estimatedLabourHours, form.estimatedPartsCost]);
 
     const loadVehicles = async () => {
         try {
@@ -90,6 +101,7 @@ const CreateWorkOrder = () => {
                 faultDescription: form.faultDescription,
                 estimatedLabourHours: form.estimatedLabourHours ? Number(form.estimatedLabourHours) : undefined,
                 estimatedPartsCost: form.estimatedPartsCost ? Number(form.estimatedPartsCost) : undefined,
+                estimatedTotalCost: form.estimatedTotalCost ? Number(form.estimatedTotalCost) : undefined,
                 notes: form.notes || undefined,
             };
             const result = await createWorkOrder(payload);
@@ -219,7 +231,7 @@ const CreateWorkOrder = () => {
                 </div>
 
                 {/* Estimates */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
                             {t('workOrders.create.labourHrs')}
@@ -247,6 +259,39 @@ const CreateWorkOrder = () => {
                             min="0"
                             step="0.01"
                         />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+                            {t('workOrders.create.totalCost') || "Total Estimate"}
+                        </label>
+                        <input
+                            type="number"
+                            value={form.estimatedTotalCost}
+                            onChange={(e) => handleChange('estimatedTotalCost', e.target.value)}
+                            placeholder="0.00"
+                            className="input-field"
+                            style={{ 
+                                border: `1.5px solid ${Number(form.estimatedTotalCost) <= 200 ? 'var(--brand-lime)' : '#E67E22'}` 
+                            }}
+                            min="0"
+                            step="0.01"
+                        />
+                        {/* Approval Indicator */}
+                        <div className="mt-2 flex items-center gap-1.5">
+                            {Number(form.estimatedTotalCost) > 0 && (
+                                Number(form.estimatedTotalCost) <= 200 ? (
+                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'rgba(200, 230, 0, 0.1)', color: 'var(--brand-lime)' }}>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                                        Auto-Approved
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'rgba(230, 126, 34, 0.1)', color: '#E67E22' }}>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
+                                        Requires Manager Approval
+                                    </div>
+                                )
+                            )}
+                        </div>
                     </div>
                 </div>
 

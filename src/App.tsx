@@ -11,6 +11,7 @@ import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
 import WorkOrderDetail from './pages/WorkOrderDetail';
 import Profile from './pages/Profile';
+import ManageStaff from './pages/ManageStaff';
 
 function App() {
     useEffect(() => {
@@ -58,6 +59,7 @@ function App() {
                             <Route path="/work-orders" element={<WorkOrderList />} />
                             <Route path="/work-orders/create" element={<CreateWorkOrder />} />
                             <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
+                            <Route path="/manage-staff" element={<ManageStaff />} />
                             <Route path="/profile" element={<Profile />} />
                         </Route>
                     </Route>

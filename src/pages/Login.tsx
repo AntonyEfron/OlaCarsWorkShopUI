@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Wrench, Eye, EyeOff, Loader2, Sun, Moon } from 'lucide-react';
-import { workshopStaffLogin } from '../services/authService';
+import { workshopStaffLogin, workshopManagerLogin } from '../services/authService';
 import { setToken, setUser } from '../utils/auth';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
@@ -15,6 +15,7 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [loginRole, setLoginRole] = useState<'staff' | 'manager'>('staff');
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -22,9 +23,14 @@ const Login = () => {
 
         setIsLoading(true);
         try {
-            const data = await workshopStaffLogin({ email, password });
+            const data = loginRole === 'manager' 
+                ? await workshopManagerLogin({ email, password })
+                : await workshopStaffLogin({ email, password });
+            
             setToken(data.token);
-            if (data.staff) {
+            if (data.manager) {
+                setUser(data.manager);
+            } else if (data.staff) {
                 setUser(data.staff);
             } else if (data.data) {
                 setUser(data.data);
@@ -91,8 +97,40 @@ const Login = () => {
                 </div>
 
                 {/* Login Card */}
-                <div className="glass-card p-8 backdrop-blur-2xl bg-[#00000044]" style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                    <form onSubmit={handleSubmit} className="space-y-5">
+                <div className="glass-card p-8 backdrop-blur-2xl bg-[#00000044] rounded-2xl" style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                    
+                    {/* Role Toggle */}
+                    <div className="flex bg-[#00000066] p-1.5 rounded-xl mb-8 border border-white/5 relative">
+                        {/* Animated pill background */}
+                        <div 
+                            className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-in-out shadow-lg"
+                            style={{ 
+                                left: loginRole === 'staff' ? '6px' : 'calc(50%)',
+                                background: loginRole === 'staff' ? 'var(--brand-lime)' : '#10b981'
+                            }}
+                        />
+                        
+                        <button
+                            type="button"
+                            onClick={() => setLoginRole('staff')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
+                                loginRole === 'staff' ? 'text-black' : 'text-white/40 hover:text-white'
+                            }`}
+                        >
+                            Staff
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setLoginRole('manager')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
+                                loginRole === 'manager' ? 'text-white' : 'text-white/40 hover:text-white'
+                            }`}
+                        >
+                            Manager
+                        </button>
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="space-y-5 flex flex-col items-stretch">
                         <div>
                             <label
                                 className="block text-xs font-bold uppercase tracking-widest mb-2"
@@ -161,8 +199,8 @@ const Login = () => {
 
                 <p className="text-center text-xs mt-8 font-medium" style={{ color: 'rgba(255, 255, 255, 0.4)' }}>
                     {t('common.logout').includes('Sesión') 
-                        ? 'Acceso exclusivo para personal de taller. Contacte a su supervisor.' 
-                        : 'Workshop Staff access only. Contact your branch manager.'}
+                        ? 'Acceso exclusivo para personal del taller. Contacte a su supervisor.' 
+                        : 'Workshop System access. Contact your management if you need help.'}
                 </p>
             </div>
         </div>

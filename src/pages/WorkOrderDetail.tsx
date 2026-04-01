@@ -17,15 +17,14 @@ import { getUserId } from '../utils/auth';
 type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'photos';
 
 const ALLOWED_TRANSITIONS: Partial<Record<WorkOrderStatus, WorkOrderStatus[]>> = {
-    DRAFT: ['PENDING_APPROVAL', 'CANCELLED'],
-    PENDING_APPROVAL: ['APPROVED', 'REJECTED'],
+    DRAFT: ['APPROVED', 'CANCELLED'],
     APPROVED: ['VEHICLE_CHECKED_IN', 'CANCELLED'],
     VEHICLE_CHECKED_IN: ['PARTS_REQUESTED', 'IN_PROGRESS'],
     PARTS_REQUESTED: ['PARTS_RECEIVED'],
     PARTS_RECEIVED: ['IN_PROGRESS'],
     IN_PROGRESS: ['PAUSED', 'ADDITIONAL_WORK_FOUND', 'QUALITY_CHECK'],
     PAUSED: ['IN_PROGRESS'],
-    ADDITIONAL_WORK_FOUND: ['IN_PROGRESS', 'PENDING_APPROVAL'],
+    ADDITIONAL_WORK_FOUND: ['IN_PROGRESS', 'APPROVED'],
     QUALITY_CHECK: ['READY_FOR_RELEASE', 'FAILED_QC'],
     FAILED_QC: ['IN_PROGRESS'],
     READY_FOR_RELEASE: ['VEHICLE_RELEASED'],
@@ -74,15 +73,32 @@ const WorkOrderDetail = () => {
 
     useEffect(() => { load(); }, [load]);
 
+    const handleBackendError = (err: any) => {
+        const msg = (err.response?.data?.message || err.message || '').toLowerCase();
+        if (msg.includes('part')) setActiveTab('parts');
+        else if (msg.includes('photo')) setActiveTab('photos');
+        else if (msg.includes('task')) setActiveTab('tasks');
+        else if (msg.includes('odometer') || msg.includes('entry') || msg.includes('additional work')) setActiveTab('overview');
+        return err;
+    };
+
     const doAction = async (fn: () => Promise<unknown>) => {
         setActionLoading(true);
-        try { await fn(); await load(); } catch { /* interceptor */ } finally { setActionLoading(false); }
+        try {
+            await fn();
+            await load();
+        } catch (err: any) {
+            handleBackendError(err);
+            throw err;
+        } finally {
+            setActionLoading(false);
+        }
     };
 
     /* ── Helpers ── */
     const getStatusBadge = (status: string) => {
         if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
-        if (['DRAFT', 'PENDING_APPROVAL'].includes(status)) return 'badge-gray';
+        if (['DRAFT'].includes(status)) return 'badge-gray';
         if (['APPROVED', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
         if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
         if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
@@ -139,8 +155,26 @@ const WorkOrderDetail = () => {
                         {nextStatuses.map((ns) => (
                             <button key={ns} disabled={actionLoading}
                                 className="btn-secondary text-xs !py-2 !px-4"
-                                onClick={() => doAction(() => {
-                                    const updateData = ns === 'IN_PROGRESS' ? { assignedTechnician: getUserId() || undefined } : undefined;
+                                onClick={() => doAction(async () => {
+                                    let updateData: any = ns === 'IN_PROGRESS' ? { assignedTechnician: getUserId() || undefined } : undefined;
+                                    
+                                    if (ns === 'VEHICLE_CHECKED_IN') {
+                                        const vehicleOdo = (wo.vehicleId as any)?.basicDetails?.odometer;
+                                        if (!wo.odometerAtEntry && !vehicleOdo) {
+                                            const odo = window.prompt('Please enter the entry odometer reading:');
+                                            if (odo === null) return; // cancel
+                                            if (!odo) throw new Error('Odometer reading at entry is required.');
+                                            updateData = { ...updateData, odometerAtEntry: Number(odo) };
+                                        }
+                                    }
+                                    
+                                    if (ns === 'ADDITIONAL_WORK_FOUND') {
+                                        const scope = window.prompt(t('workOrders.detail.additionalWorkPrompt') || 'Please describe the additional work found:');
+                                        if (scope === null) return; // cancel
+                                        if (!scope) throw new Error('Description of additional work scope is required.');
+                                        updateData = { ...updateData, additionalWorkScope: scope };
+                                    }
+                                    
                                     return progressWorkOrderStatus(id!, ns, undefined, updateData);
                                 })}
                             >
@@ -179,8 +213,8 @@ const WorkOrderDetail = () => {
                         <InfoRow label={t('dashboard.table.type')} value={t(`workOrders.types.${wo.workOrderType.toLowerCase()}`, { defaultValue: wo.workOrderType.replace(/_/g, ' ') })} />
                         <InfoRow label={t('dashboard.table.priority')} value={t(`workOrders.priorities.${wo.priority.toLowerCase()}`, { defaultValue: wo.priority })} />
                         <InfoRow label={t('workOrders.create.vehicle')} value={vehicleLabel()} />
-                        <InfoRow label={t('common.add').includes('Agre') ? 'Creado' : 'Created'} value={fmtDate(wo.createdAt)} />
-                        <InfoRow label={t('common.add').includes('Agre') ? 'Actualizado' : 'Updated'} value={fmtDate(wo.updatedAt)} />
+                        <InfoRow label={t('common.created')} value={fmtDate(wo.createdAt)} />
+                        <InfoRow label={t('common.updated')} value={fmtDate(wo.updatedAt)} />
                     </div>
                     <div className="glass-card p-5 space-y-4">
                         <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.faultCost')}</h3>
@@ -203,7 +237,7 @@ const WorkOrderDetail = () => {
                     <div className="flex items-center justify-between">
                         <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.tasks')} ({wo.tasks.length})</h3>
                         <button className="btn-primary text-xs !py-2" onClick={() => setShowTaskForm(!showTaskForm)}>
-                            <PlusCircle size={14} /> {t('workOrders.create.addItem')}
+                            <PlusCircle size={14} /> {t('common.addItem')}
                         </button>
                     </div>
                     {showTaskForm && (
@@ -279,7 +313,7 @@ const WorkOrderDetail = () => {
                     <div className="flex items-center justify-between">
                         <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.parts')} ({wo.parts.length})</h3>
                         <button className="btn-primary text-xs !py-2" onClick={() => setShowPartForm(!showPartForm)}>
-                            <PlusCircle size={14} /> {t('workOrders.create.addItem')}
+                            <PlusCircle size={14} /> {t('common.addItem')}
                         </button>
                     </div>
                     {showPartForm && (
@@ -358,31 +392,72 @@ const WorkOrderDetail = () => {
                 <div className="space-y-4">
                     <div className="glass-card p-6">
                         <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.labour')}</h3>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button className="flex flex-col items-center justify-center gap-2 p-5 rounded-2xl font-semibold text-sm transition-all duration-200 cursor-pointer active:scale-95"
-                                style={{ background: '#27AE6022', color: '#27AE60', border: '2px solid #27AE6044', minHeight: '80px' }}
-                                disabled={actionLoading}
-                                onClick={() => doAction(() => logLabour(id!, { action: 'CLOCK_IN', technicianId: getUserId() || undefined }))}>
-                                <Play size={24} /><span>Clock In</span>
-                            </button>
-                            <button className="flex flex-col items-center justify-center gap-2 p-5 rounded-2xl font-semibold text-sm transition-all duration-200 cursor-pointer active:scale-95"
-                                style={{ background: '#E74C3C22', color: '#E74C3C', border: '2px solid #E74C3C44', minHeight: '80px' }}
-                                disabled={actionLoading}
-                                onClick={() => doAction(() => logLabour(id!, { action: 'CLOCK_OUT', technicianId: getUserId() || undefined }))}>
-                                <Square size={24} /><span>Clock Out</span>
-                            </button>
-                            <button className="flex flex-col items-center justify-center gap-2 p-5 rounded-2xl font-semibold text-sm transition-all duration-200 cursor-pointer active:scale-95"
-                                style={{ background: '#E67E2222', color: '#E67E22', border: '2px solid #E67E2244', minHeight: '80px' }}
-                                disabled={actionLoading}
-                                onClick={() => doAction(() => logLabour(id!, { action: 'PAUSE', technicianId: getUserId() || undefined }))}>
-                                <Pause size={24} /><span>Pause</span>
-                            </button>
-                            <button className="flex flex-col items-center justify-center gap-2 p-5 rounded-2xl font-semibold text-sm transition-all duration-200 cursor-pointer active:scale-95"
-                                style={{ background: '#3498DB22', color: '#3498DB', border: '2px solid #3498DB44', minHeight: '80px' }}
-                                disabled={actionLoading}
-                                onClick={() => doAction(() => logLabour(id!, { action: 'RESUME', technicianId: getUserId() || undefined }))}>
-                                <Play size={24} /><span>Resume</span>
-                            </button>
+                        <div className="flex flex-col gap-4">
+                            {/* Stats Summary */}
+                            <div className="grid grid-cols-2 gap-4 mb-2">
+                                <div className="glass-card p-4 text-center">
+                                    <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Estimated</p>
+                                    <p className="text-xl font-bold font-mono" style={{ color: 'var(--text-main)' }}>{wo.estimatedLabourHours || 0}h</p>
+                                </div>
+                                <div className="glass-card p-4 text-center border-l-2 border-[var(--brand-lime)]">
+                                    <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Actual</p>
+                                    <p className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>{wo.actualLabourHours || 0}h</p>
+                                </div>
+                            </div>
+
+                            {/* Automated/Manual Controls */}
+                            <div className="grid grid-cols-1 gap-3">
+                                {wo.status === 'IN_PROGRESS' && (
+                                    <button className="flex items-center justify-center gap-3 p-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer active:scale-95 shadow-lg w-full"
+                                        style={{ background: '#E67E2222', color: '#E67E22', border: '2px solid #E67E2244' }}
+                                        disabled={actionLoading}
+                                        onClick={() => doAction(async () => {
+                                            const reason = window.prompt('Please enter the pause reason:');
+                                            if (reason === null) return;
+                                            if (!reason) throw new Error('Pause reason is required.');
+                                            await logLabour(id!, { action: 'PAUSE', technicianId: getUserId() || undefined, notes: reason });
+                                            // Status transition to PAUSED is handled by the Status Bar actions, 
+                                            // but if they just want to pause the timer without changing status? 
+                                            // Actually, the request says "progress status bar makes the timer run".
+                                            // So PAUSE action should probably also trigger status change to PAUSED.
+                                            await progressWorkOrderStatus(id!, 'PAUSED', reason);
+                                        })}>
+                                        <Pause size={24} />
+                                        <div className="text-left">
+                                            <p className="leading-tight">Pause Work</p>
+                                            <p className="text-[10px] opacity-60 font-medium uppercase tracking-wider">Requires reason prompt</p>
+                                        </div>
+                                    </button>
+                                )}
+
+                                {wo.status === 'PAUSED' && (
+                                    <button className="flex items-center justify-center gap-3 p-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer active:scale-95 shadow-lg w-full"
+                                        style={{ background: '#3498DB22', color: '#3498DB', border: '2px solid #3498DB44' }}
+                                        disabled={actionLoading}
+                                        onClick={() => doAction(async () => {
+                                            await logLabour(id!, { action: 'RESUME', technicianId: getUserId() || undefined });
+                                            await progressWorkOrderStatus(id!, 'IN_PROGRESS');
+                                        })}>
+                                        <Play size={24} />
+                                        <div className="text-left">
+                                            <p className="leading-tight">Resume Work</p>
+                                            <p className="text-[10px] opacity-60 font-medium uppercase tracking-wider">Continues automated tracking</p>
+                                        </div>
+                                    </button>
+                                )}
+
+                                {(wo.status !== 'IN_PROGRESS' && wo.status !== 'PAUSED') && (
+                                    <div className="glass-card p-6 text-center border-dashed border-2 opacity-60">
+                                        <Clock size={32} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
+                                        <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Labour Tracking</p>
+                                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                                            {wo.status === 'QUALITY_CHECK' || wo.status === 'READY_FOR_RELEASE' || wo.status === 'VEHICLE_RELEASED' 
+                                                ? 'Work completed. Labour logs finalized.'
+                                                : 'Automatic timer starts when status is set to IN PROGRESS.'}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -522,7 +597,7 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 );
 
 const PHASES = [
-    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'] },
+    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'APPROVED', 'REJECTED'] },
     { key: 'reception', label: 'Reception', statuses: ['VEHICLE_CHECKED_IN'] },
     { key: 'repair', label: 'Repair', statuses: ['PARTS_REQUESTED', 'PARTS_RECEIVED', 'IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'] },
     { key: 'qc', label: 'QC', statuses: ['QUALITY_CHECK', 'FAILED_QC'] },

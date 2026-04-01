@@ -3,7 +3,7 @@ import api from './api';
 // ── Enums / Types ────────────────────────────────────────────────────
 
 export type WorkOrderStatus =
-    | 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
+    | 'DRAFT' | 'APPROVED' | 'REJECTED'
     | 'VEHICLE_CHECKED_IN' | 'PARTS_REQUESTED' | 'PARTS_RECEIVED'
     | 'IN_PROGRESS' | 'PAUSED' | 'ADDITIONAL_WORK_FOUND'
     | 'QUALITY_CHECK' | 'FAILED_QC' | 'READY_FOR_RELEASE'

@@ -18,7 +18,7 @@ import {
 } from '../services/workOrderService';
 
 const STATUS_OPTIONS: WorkOrderStatus[] = [
-    'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED',
+    'DRAFT', 'APPROVED', 'REJECTED',
     'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED',
     'IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND',
     'QUALITY_CHECK', 'FAILED_QC', 'READY_FOR_RELEASE',
@@ -75,7 +75,7 @@ const WorkOrderList = () => {
 
     const getStatusBadgeClass = (status: WorkOrderStatus) => {
         if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
-        if (['DRAFT', 'PENDING_APPROVAL'].includes(status)) return 'badge-gray';
+        if (['DRAFT'].includes(status)) return 'badge-gray';
         if (['APPROVED', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
         if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
         if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
