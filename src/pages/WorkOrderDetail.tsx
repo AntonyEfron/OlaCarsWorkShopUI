@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
-    Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, Upload,
+    Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, Upload, AlertTriangle,
 } from 'lucide-react';
 import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
@@ -12,19 +12,20 @@ import {
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
 } from '../services/workOrderService';
-import { getUserId } from '../utils/auth';
+import { getUserId, getUser } from '../utils/auth';
+import { getParts, type InventoryPart } from '../services/inventoryService';
 
 type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'photos';
 
 const ALLOWED_TRANSITIONS: Partial<Record<WorkOrderStatus, WorkOrderStatus[]>> = {
-    DRAFT: ['APPROVED', 'CANCELLED'],
-    APPROVED: ['VEHICLE_CHECKED_IN', 'CANCELLED'],
+    DRAFT: ['START', 'CANCELLED'],
+    START: ['VEHICLE_CHECKED_IN', 'CANCELLED'],
     VEHICLE_CHECKED_IN: ['PARTS_REQUESTED', 'IN_PROGRESS'],
     PARTS_REQUESTED: ['PARTS_RECEIVED'],
     PARTS_RECEIVED: ['IN_PROGRESS'],
     IN_PROGRESS: ['PAUSED', 'ADDITIONAL_WORK_FOUND', 'QUALITY_CHECK'],
     PAUSED: ['IN_PROGRESS'],
-    ADDITIONAL_WORK_FOUND: ['IN_PROGRESS', 'APPROVED'],
+    ADDITIONAL_WORK_FOUND: ['IN_PROGRESS', 'START'],
     QUALITY_CHECK: ['READY_FOR_RELEASE', 'FAILED_QC'],
     FAILED_QC: ['IN_PROGRESS'],
     READY_FOR_RELEASE: ['VEHICLE_RELEASED'],
@@ -55,6 +56,11 @@ const WorkOrderDetail = () => {
     /* ── Part form state ── */
     const [showPartForm, setShowPartForm] = useState(false);
     const [partForm, setPartForm] = useState<AddPartPayload>({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
+    const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
+    const [selectedInventoryPart, setSelectedInventoryPart] = useState<InventoryPart | null>(null);
+    const [partsLoading, setPartsLoading] = useState(false);
+    const user = getUser();
+    const branchId = (user?.branchId as string) || '';
 
     /* ── Photo form ── */
     const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -64,6 +70,7 @@ const WorkOrderDetail = () => {
     const [releaseNotes, setReleaseNotes] = useState('');
 
     const load = useCallback(async () => {
+        
         if (!id) return;
         try {
             const data = await getWorkOrderById(id);
@@ -72,6 +79,18 @@ const WorkOrderDetail = () => {
     }, [id]);
 
     useEffect(() => { load(); }, [load]);
+
+    // Load inventory parts for the dropdown
+    useEffect(() => {
+        const woBranchId = typeof wo?.branchId === 'object' ? (wo.branchId as any)?._id : wo?.branchId;
+        const fetchBranchId = woBranchId || branchId;
+        if (fetchBranchId) {
+            setPartsLoading(true);
+            getParts({ branchId: fetchBranchId }).then(parts => {
+                setInventoryParts(parts.filter(p => p.isActive));
+            }).catch(() => {}).finally(() => setPartsLoading(false));
+        }
+    }, [wo?.branchId, branchId]);
 
     const handleBackendError = (err: any) => {
         const msg = (err.response?.data?.message || err.message || '').toLowerCase();
@@ -99,7 +118,7 @@ const WorkOrderDetail = () => {
     const getStatusBadge = (status: string) => {
         if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
         if (['DRAFT'].includes(status)) return 'badge-gray';
-        if (['APPROVED', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
+        if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
         if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
         if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
         if (['REJECTED', 'CANCELLED'].includes(status)) return 'badge-red';
@@ -318,23 +337,76 @@ const WorkOrderDetail = () => {
                     </div>
                     {showPartForm && (
                         <div className="glass-card p-4 space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
-                                <input placeholder="Part name *" value={partForm.partName} onChange={(e) => setPartForm({ ...partForm, partName: e.target.value })} className="input-field" />
-                                <input placeholder="Part number" value={partForm.partNumber || ''} onChange={(e) => setPartForm({ ...partForm, partNumber: e.target.value })} className="input-field" />
-                            </div>
-                            <div className="grid grid-cols-3 gap-3">
-                                <input type="number" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })} className="input-field" min="1" />
-                                <input type="number" placeholder="Unit cost" value={partForm.unitCost || ''} onChange={(e) => setPartForm({ ...partForm, unitCost: Number(e.target.value) })} className="input-field" min="0" step="0.01" />
-                                <select value={partForm.source || 'IN_STOCK'} onChange={(e) => setPartForm({ ...partForm, source: e.target.value as PartSource })} className="input-field">
-                                    <option value="IN_STOCK">In Stock</option>
-                                    <option value="ORDERED">Ordered</option>
-                                    <option value="EXTERNAL_VENDOR">External</option>
+                            {/* Part Dropdown */}
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Select Part from Inventory *</label>
+                                <select
+                                    className="input-field"
+                                    value={selectedInventoryPart?._id || ''}
+                                    onChange={(e) => {
+                                        const part = inventoryParts.find(p => p._id === e.target.value);
+                                        setSelectedInventoryPart(part || null);
+                                        if (part) {
+                                            setPartForm({
+                                                ...partForm,
+                                                partName: part.partName,
+                                                partNumber: part.partNumber,
+                                                unitCost: part.unitCost,
+                                                inventoryPartId: part._id,
+                                                source: 'IN_STOCK',
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <option value="">{partsLoading ? 'Loading parts...' : '— Choose a part —'}</option>
+                                    {inventoryParts.map(p => {
+                                        const available = p.quantityOnHand - p.quantityReserved;
+                                        return (
+                                            <option key={p._id} value={p._id}>
+                                                {p.partName} ({p.partNumber}) — {available > 0 ? `${available} available` : 'OUT OF STOCK'}
+                                            </option>
+                                        );
+                                    })}
                                 </select>
                             </div>
+
+                            {/* Stock Indicator */}
+                            {selectedInventoryPart && (() => {
+                                const available = selectedInventoryPart.quantityOnHand - selectedInventoryPart.quantityReserved;
+                                const isOutOfStock = available <= 0;
+                                const isInsufficient = !isOutOfStock && available < partForm.quantity;
+                                return (
+                                    <div className={`flex items-center gap-2 p-3 rounded-xl text-xs font-semibold ${
+                                        isOutOfStock ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                        : isInsufficient ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                        : 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                    }`}>
+                                        {isOutOfStock ? <AlertTriangle size={14} /> : isInsufficient ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+                                        {isOutOfStock
+                                            ? 'Out of stock — part will be added as a REQUEST for manager approval.'
+                                            : isInsufficient
+                                            ? `Only ${available} available — need ${partForm.quantity}. Will be added as a REQUEST.`
+                                            : `${available} in stock — will be reserved.`
+                                        }
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Quantity */}
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity</label>
+                                <input type="number" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })} className="input-field max-w-[200px]" min="1" />
+                            </div>
+
                             <div className="flex gap-2">
-                                <button className="btn-secondary text-xs flex-1" onClick={() => setShowPartForm(false)}>{t('common.cancel')}</button>
-                                <button className="btn-primary text-xs flex-1" disabled={!partForm.partName || actionLoading}
-                                    onClick={() => doAction(async () => { await addPart(id!, partForm); setShowPartForm(false); setPartForm({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' }); })}>
+                                <button className="btn-secondary text-xs flex-1" onClick={() => { setShowPartForm(false); setSelectedInventoryPart(null); }}>{t('common.cancel')}</button>
+                                <button className="btn-primary text-xs flex-1" disabled={!selectedInventoryPart || actionLoading}
+                                    onClick={() => doAction(async () => {
+                                        await addPart(id!, partForm);
+                                        setShowPartForm(false);
+                                        setSelectedInventoryPart(null);
+                                        setPartForm({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
+                                    })}>
                                     {actionLoading ? <Loader2 size={14} className="animate-spin" /> : t('common.add')}
                                 </button>
                             </div>
@@ -349,21 +421,42 @@ const WorkOrderDetail = () => {
                         <div className="space-y-2">
                             {wo.parts.map((part) => (
                                 <div key={part._id} className="glass-card p-4 flex items-start gap-3">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                        part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
+                                        : part.status === 'REQUESTED' ? 'bg-orange-500/10 text-orange-500'
+                                        : 'bg-blue-500/10 text-blue-500'
+                                    }`}>
+                                        {part.status === 'INSTALLED' ? <CheckCircle2 size={20} />
+                                        : part.status === 'REQUESTED' ? <AlertTriangle size={20} />
+                                        : <Package size={20} />}
+                                    </div>
                                     <div className="flex-1">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
-                                            <span className={`badge text-[10px] ${part.status === 'INSTALLED' ? 'badge-green' : part.status === 'RECEIVED' ? 'badge-blue' : 'badge-gray'}`}>
-                                                {part.status}
+                                            <span className={`badge text-[10px] ${
+                                                part.status === 'INSTALLED' ? 'badge-green'
+                                                : part.status === 'REQUESTED' ? 'badge-orange'
+                                                : part.status === 'RESERVED' ? 'badge-blue'
+                                                : part.status === 'RECEIVED' ? 'badge-blue'
+                                                : 'badge-gray'
+                                            }`}>
+                                                {part.status === 'REQUESTED' ? '⏳ AWAITING APPROVAL' : part.status}
                                             </span>
                                         </div>
                                         <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                                            {part.partNumber || 'No P/N'} • Qty: {part.quantity} • ${part.unitCost.toFixed(2)} each = ${part.totalCost.toFixed(2)}
+                                            Qty: {part.quantity} • ${part.unitCost.toFixed(2)} each = ${part.totalCost.toFixed(2)}
                                         </p>
                                     </div>
                                     <div className="flex gap-1 flex-shrink-0">
                                         {part.status === 'REQUESTED' && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Mark Received" disabled={actionLoading}
-                                                onClick={() => doAction(() => updatePart(id!, part._id, { status: 'RECEIVED' as PartStatus }))}>
+                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Approve & Install" disabled={actionLoading}
+                                                onClick={() => doAction(() => updatePart(id!, part._id, { status: 'INSTALLED' as PartStatus }))}>
+                                                <CheckCircle2 size={14} />
+                                            </button>
+                                        )}
+                                        {part.status === 'RESERVED' && (
+                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Mark Installed" disabled={actionLoading}
+                                                onClick={() => doAction(() => updatePart(id!, part._id, { status: 'INSTALLED' as PartStatus }))}>
                                                 <CheckCircle2 size={14} />
                                             </button>
                                         )}
@@ -373,7 +466,7 @@ const WorkOrderDetail = () => {
                                                 <CheckCircle2 size={14} />
                                             </button>
                                         )}
-                                        {part.status === 'REQUESTED' && (
+                                        {(part.status === 'REQUESTED' || part.status === 'RECEIVED' || part.status === 'RESERVED') && (
                                             <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
                                                 onClick={() => doAction(() => removePart(id!, part._id))}>
                                                 <Trash2 size={14} />
@@ -597,7 +690,7 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 );
 
 const PHASES = [
-    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'APPROVED', 'REJECTED'] },
+    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'START', 'REJECTED'] },
     { key: 'reception', label: 'Reception', statuses: ['VEHICLE_CHECKED_IN'] },
     { key: 'repair', label: 'Repair', statuses: ['PARTS_REQUESTED', 'PARTS_RECEIVED', 'IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'] },
     { key: 'qc', label: 'QC', statuses: ['QUALITY_CHECK', 'FAILED_QC'] },

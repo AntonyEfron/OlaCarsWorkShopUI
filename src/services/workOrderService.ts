@@ -3,7 +3,7 @@ import api from './api';
 // ── Enums / Types ────────────────────────────────────────────────────
 
 export type WorkOrderStatus =
-    | 'DRAFT' | 'APPROVED' | 'REJECTED'
+    | 'DRAFT' | 'PENDING_APPROVAL' | 'START' | 'REJECTED'
     | 'VEHICLE_CHECKED_IN' | 'PARTS_REQUESTED' | 'PARTS_RECEIVED'
     | 'IN_PROGRESS' | 'PAUSED' | 'ADDITIONAL_WORK_FOUND'
     | 'QUALITY_CHECK' | 'FAILED_QC' | 'READY_FOR_RELEASE'
@@ -221,6 +221,7 @@ export interface AddPartPayload {
     quantity: number;
     unitCost?: number;
     source?: PartSource;
+    inventoryPartId?: string;
 }
 
 export const addPart = async (workOrderId: string, payload: AddPartPayload): Promise<WorkOrder> => {

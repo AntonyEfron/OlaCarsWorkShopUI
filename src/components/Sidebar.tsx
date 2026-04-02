@@ -10,6 +10,8 @@ import {
     Users,
     ChevronLeft,
     ChevronRight,
+    Package,
+    ShoppingCart,
 } from 'lucide-react';
 import { logout, getUser, getUserRole } from '../utils/auth';
 
@@ -31,6 +33,8 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         { path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
         { path: '/work-orders', icon: ClipboardList, label: t('common.workOrders') },
         { path: '/work-orders/create', icon: PlusCircle, label: t('workOrders.list.new') },
+        { path: '/inventory', icon: Package, label: 'Inventory' },
+        { path: '/requirements', icon: ShoppingCart, label: 'Part Requirements' },
     ];
 
     if (isManager) {

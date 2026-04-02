@@ -12,6 +12,8 @@ import CreateWorkOrder from './pages/CreateWorkOrder';
 import WorkOrderDetail from './pages/WorkOrderDetail';
 import Profile from './pages/Profile';
 import ManageStaff from './pages/ManageStaff';
+import Inventory from './pages/Inventory';
+import WorkshopRequirements from './pages/WorkshopRequirements';
 
 function App() {
     useEffect(() => {
@@ -60,6 +62,8 @@ function App() {
                             <Route path="/work-orders/create" element={<CreateWorkOrder />} />
                             <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
                             <Route path="/manage-staff" element={<ManageStaff />} />
+                            <Route path="/inventory" element={<Inventory />} />
+                            <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/profile" element={<Profile />} />
                         </Route>
                     </Route>
