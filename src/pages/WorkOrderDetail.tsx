@@ -4,28 +4,31 @@ import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
     Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, Upload, AlertTriangle,
+    Receipt, CreditCard, DollarSign,
 } from 'lucide-react';
 import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
-    addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile,
-    releaseVehicle,
+    addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
+    generateBill, releaseVehicle,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
 } from '../services/workOrderService';
 import { getUserId, getUser } from '../utils/auth';
 import { getParts, type InventoryPart } from '../services/inventoryService';
+import toast from 'react-hot-toast';
 
-type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'photos';
+type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'photos' | 'billing';
 
 const ALLOWED_TRANSITIONS: Partial<Record<WorkOrderStatus, WorkOrderStatus[]>> = {
-    DRAFT: ['START', 'CANCELLED'],
+    DRAFT: ['PENDING_APPROVAL', 'START', 'CANCELLED'],
+    PENDING_APPROVAL: ['START', 'REJECTED', 'CANCELLED'],
     START: ['VEHICLE_CHECKED_IN', 'CANCELLED'],
     VEHICLE_CHECKED_IN: ['PARTS_REQUESTED', 'IN_PROGRESS'],
     PARTS_REQUESTED: ['PARTS_RECEIVED'],
     PARTS_RECEIVED: ['IN_PROGRESS'],
     IN_PROGRESS: ['PAUSED', 'ADDITIONAL_WORK_FOUND', 'QUALITY_CHECK'],
     PAUSED: ['IN_PROGRESS'],
-    ADDITIONAL_WORK_FOUND: ['IN_PROGRESS', 'START'],
+    ADDITIONAL_WORK_FOUND: ['PENDING_APPROVAL', 'IN_PROGRESS', 'START'],
     QUALITY_CHECK: ['READY_FOR_RELEASE', 'FAILED_QC'],
     FAILED_QC: ['IN_PROGRESS'],
     READY_FOR_RELEASE: ['VEHICLE_RELEASED'],
@@ -47,6 +50,7 @@ const WorkOrderDetail = () => {
         { key: 'labour', label: t('workOrders.detail.labour'), icon: Clock },
         { key: 'qc', label: t('workOrders.detail.qc'), icon: Shield },
         { key: 'photos', label: 'Photos', icon: Camera },
+        { key: 'billing', label: 'Billing', icon: Receipt },
     ];
 
     /* ── Task form state ── */
@@ -69,8 +73,16 @@ const WorkOrderDetail = () => {
     const [releaseOdometer, setReleaseOdometer] = useState('');
     const [releaseNotes, setReleaseNotes] = useState('');
 
+    /* ── Odometer Entry Modal (Check-in) ── */
+    const [showOdometerModal, setShowOdometerModal] = useState(false);
+    const [odometerEntry, setOdometerEntry] = useState('');
+
+    /* ── Additional Work Modal ── */
+    const [showAdditionalWorkModal, setShowAdditionalWorkModal] = useState(false);
+    const [additionalWorkScope, setAdditionalWorkScope] = useState('');
+    const [additionalWorkTask, setAdditionalWorkTask] = useState('');
+
     const load = useCallback(async () => {
-        
         if (!id) return;
         try {
             const data = await getWorkOrderById(id);
@@ -88,7 +100,7 @@ const WorkOrderDetail = () => {
             setPartsLoading(true);
             getParts({ branchId: fetchBranchId }).then(parts => {
                 setInventoryParts(parts.filter(p => p.isActive));
-            }).catch(() => {}).finally(() => setPartsLoading(false));
+            }).catch(() => { }).finally(() => setPartsLoading(false));
         }
     }, [wo?.branchId, branchId]);
 
@@ -118,6 +130,7 @@ const WorkOrderDetail = () => {
     const getStatusBadge = (status: string) => {
         if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
         if (['DRAFT'].includes(status)) return 'badge-gray';
+        if (['PENDING_APPROVAL'].includes(status)) return 'badge-orange font-bold animate-pulse';
         if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
         if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
         if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
@@ -146,9 +159,6 @@ const WorkOrderDetail = () => {
 
     const nextStatuses = ALLOWED_TRANSITIONS[wo.status] || [];
 
-    /* ═══════════════════════════════════════════════════════════════════
-       RENDER
-       ═══════════════════════════════════════════════════════════════════ */
     return (
         <div className="space-y-5 animate-fadeInUp">
             {/* ── Header ── */}
@@ -166,6 +176,19 @@ const WorkOrderDetail = () => {
             {/* ── Status Stepper (Workflow) ── */}
             <StatusStepper currentStatus={wo.status} t_func={t} />
 
+            {/* Approval Notice */}
+            {wo.status === 'PENDING_APPROVAL' && (
+                <div className="glass-card p-4 border-orange-500/20 bg-orange-500/5 flex items-center gap-4 animate-fadeInUp">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500">
+                        <Shield size={20} />
+                    </div>
+                    <div>
+                        <h4 className="text-sm font-bold text-orange-400">Manager Approval Required</h4>
+                        <p className="text-xs text-muted-foreground">Estimated cost exceeds the auto-approval threshold. A manager must review and approve before work can proceed.</p>
+                    </div>
+                </div>
+            )}
+
             {/* ── Status Actions ── */}
             {nextStatuses.length > 0 && (
                 <div className="glass-card p-4">
@@ -173,40 +196,198 @@ const WorkOrderDetail = () => {
                     <div className="flex flex-wrap gap-2">
                         {nextStatuses.map((ns) => (
                             <button key={ns} disabled={actionLoading}
-                                className="btn-secondary text-xs !py-2 !px-4"
+                                className={`btn-${ns === 'START' && wo.status === 'PENDING_APPROVAL' ? 'primary' : 'secondary'} text-xs !py-2 !px-4`}
                                 onClick={() => doAction(async () => {
                                     let updateData: any = ns === 'IN_PROGRESS' ? { assignedTechnician: getUserId() || undefined } : undefined;
-                                    
+
                                     if (ns === 'VEHICLE_CHECKED_IN') {
-                                        const vehicleOdo = (wo.vehicleId as any)?.basicDetails?.odometer;
-                                        if (!wo.odometerAtEntry && !vehicleOdo) {
-                                            const odo = window.prompt('Please enter the entry odometer reading:');
-                                            if (odo === null) return; // cancel
-                                            if (!odo) throw new Error('Odometer reading at entry is required.');
-                                            updateData = { ...updateData, odometerAtEntry: Number(odo) };
+                                        setShowOdometerModal(true);
+                                        return; // Modal handles the submission
+                                    }
+
+                                    if (ns === 'ADDITIONAL_WORK_FOUND') {
+                                        setShowAdditionalWorkModal(true);
+                                        return; // Modal handles the rest
+                                    }
+
+                                    if (ns === 'REJECTED' || ns === 'PAUSED') {
+                                        const promptMsg = ns === 'REJECTED' ? 'Reason for rejection:' : 'Reason for pausing:';
+                                        const reason = window.prompt(promptMsg);
+                                        if (!reason) return;
+                                        updateData = ns === 'REJECTED' ? { rejectionReason: reason } : { pauseReason: reason };
+                                    }
+
+                                    if (ns === 'READY_FOR_RELEASE') {
+                                        const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
+                                            rp.isMandatory && !wo.photos.some(p => p.caption === rp.label)
+                                        );
+                                        if (missingMandatory.length > 0) {
+                                            toast.error(`Please upload mandatory photos: ${missingMandatory.map(m => m.label).join(', ')}`);
+                                            setActiveTab('photos');
+                                            return;
                                         }
                                     }
-                                    
-                                    if (ns === 'ADDITIONAL_WORK_FOUND') {
-                                        const scope = window.prompt(t('workOrders.detail.additionalWorkPrompt') || 'Please describe the additional work found:');
-                                        if (scope === null) return; // cancel
-                                        if (!scope) throw new Error('Description of additional work scope is required.');
-                                        updateData = { ...updateData, additionalWorkScope: scope };
-                                    }
-                                    
+
                                     return progressWorkOrderStatus(id!, ns, undefined, updateData);
                                 })}
                             >
-                                <ChevronRight size={14} /> {fmtStatus(ns)}
+                                {ns === 'START' && wo.status === 'PENDING_APPROVAL' ? <CheckCircle2 size={14} className="mr-1" /> : <ChevronRight size={14} />}
+                                {ns === 'START' && wo.status === 'PENDING_APPROVAL' ? 'Approve & Start' : fmtStatus(ns)}
                             </button>
                         ))}
                         {wo.status === 'READY_FOR_RELEASE' && (
                             <button disabled={actionLoading} className="btn-primary text-xs !py-2 !px-4"
-                                onClick={() => doAction(() => releaseVehicle(id!, { odometerAtRelease: releaseOdometer ? Number(releaseOdometer) : undefined, releaseNotes: releaseNotes || undefined }))}
+                                onClick={() => {
+                                    const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
+                                        rp.isMandatory && !wo.photos.some(p => p.caption === rp.label)
+                                    );
+                                    if (missingMandatory.length > 0) {
+                                        toast.error(`Mandatory photos missing: ${missingMandatory.map(m => m.label).join(', ')}`);
+                                        setActiveTab('photos');
+                                        return;
+                                    }
+                                    doAction(() => releaseVehicle(id!, { odometerAtRelease: releaseOdometer ? Number(releaseOdometer) : undefined, releaseNotes: releaseNotes || undefined }));
+                                }}
                             >
                                 <CheckCircle2 size={14} /> {t('workOrders.detail.release')}
                             </button>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Odometer Entry Modal ── */}
+            {showOdometerModal && (
+                <div className="glass-card p-5 border-lime/30 animate-scaleIn">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 rounded-lg bg-lime/10 text-lime">
+                            <Clock size={20} />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-bold">{t('workOrders.detail.odometerEntryTitle') || 'Vehicle Check-in'}</h3>
+                            <p className="text-xs text-muted-foreground">{t('workOrders.detail.odometerEntrySubtitle') || 'Please record the current mileage'}</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
+                                {t('workOrders.detail.odometerAtEntry') || 'Odometer at Entry (KM)'}
+                            </label>
+                            <input
+                                type="number"
+                                value={odometerEntry}
+                                onChange={(e) => setOdometerEntry(e.target.value)}
+                                placeholder="E.g. 45200"
+                                className="input-field w-full"
+                            />
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                className="btn-secondary flex-1 text-xs"
+                                onClick={() => {
+                                    setShowOdometerModal(false);
+                                    setOdometerEntry('');
+                                }}
+                            >
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                className="btn-primary flex-1 text-xs"
+                                disabled={!odometerEntry || actionLoading}
+                                onClick={() => doAction(async () => {
+                                    const res = await progressWorkOrderStatus(id!, 'VEHICLE_CHECKED_IN', undefined, {
+                                        odometerAtEntry: Number(odometerEntry)
+                                    });
+                                    setShowOdometerModal(false);
+                                    setOdometerEntry('');
+                                    return res;
+                                })}
+                            >
+                                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} {t('common.confirm')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Additional Work Modal ── */}
+            {showAdditionalWorkModal && (
+                <div className="glass-card p-5 border-orange/30 animate-scaleIn">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 rounded-lg bg-orange/10 text-orange">
+                            <AlertTriangle size={20} />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-bold">{t('workOrders.detail.additionalWorkTitle') || 'Additional Work Found'}</h3>
+                            <p className="text-xs text-muted-foreground">{t('workOrders.detail.additionalWorkSubtitle') || 'Document newly discovered issues'}</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
+                                {t('workOrders.detail.additionalWorkScope') || 'Description of Issue / Scope'}
+                            </label>
+                            <textarea
+                                value={additionalWorkScope}
+                                onChange={(e) => setAdditionalWorkScope(e.target.value)}
+                                placeholder="E.g. Found crack in rear brake disc while inspecting pads."
+                                className="input-field w-full min-h-[80px] py-2"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
+                                {t('workOrders.detail.additionalWorkTask') || 'Create Official Task'}
+                            </label>
+                            <input
+                                type="text"
+                                value={additionalWorkTask}
+                                onChange={(e) => setAdditionalWorkTask(e.target.value)}
+                                placeholder="E.g. Replace rear brake disc"
+                                className="input-field w-full"
+                            />
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                className="btn-secondary flex-1 text-xs"
+                                onClick={() => {
+                                    setShowAdditionalWorkModal(false);
+                                    setAdditionalWorkScope('');
+                                    setAdditionalWorkTask('');
+                                }}
+                            >
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                className="btn-primary flex-1 text-xs"
+                                disabled={!additionalWorkScope || !additionalWorkTask || actionLoading}
+                                onClick={() => doAction(async () => {
+                                    // 1. Progress Status
+                                    const res = await progressWorkOrderStatus(id!, 'ADDITIONAL_WORK_FOUND', undefined, {
+                                        additionalWorkScope
+                                    });
+
+                                    // 2. Add concrete task
+                                    await addTask(id!, {
+                                        description: additionalWorkTask,
+                                        category: 'Mechanical',
+                                        estimatedHours: 1
+                                    });
+
+                                    setShowAdditionalWorkModal(false);
+                                    setAdditionalWorkScope('');
+                                    setAdditionalWorkTask('');
+                                    load(); // Refresh WO to show new task and status
+                                    return res;
+                                })}
+                            >
+                                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />} {t('common.confirm')}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -337,7 +518,6 @@ const WorkOrderDetail = () => {
                     </div>
                     {showPartForm && (
                         <div className="glass-card p-4 space-y-3">
-                            {/* Part Dropdown */}
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Select Part from Inventory *</label>
                                 <select
@@ -369,35 +549,29 @@ const WorkOrderDetail = () => {
                                     })}
                                 </select>
                             </div>
-
-                            {/* Stock Indicator */}
                             {selectedInventoryPart && (() => {
                                 const available = selectedInventoryPart.quantityOnHand - selectedInventoryPart.quantityReserved;
                                 const isOutOfStock = available <= 0;
                                 const isInsufficient = !isOutOfStock && available < partForm.quantity;
                                 return (
-                                    <div className={`flex items-center gap-2 p-3 rounded-xl text-xs font-semibold ${
-                                        isOutOfStock ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                    <div className={`flex items-center gap-2 p-3 rounded-xl text-xs font-semibold ${isOutOfStock ? 'bg-red-500/10 text-red-400 border border-red-500/20'
                                         : isInsufficient ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                                        : 'bg-green-500/10 text-green-400 border border-green-500/20'
-                                    }`}>
+                                            : 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                        }`}>
                                         {isOutOfStock ? <AlertTriangle size={14} /> : isInsufficient ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
                                         {isOutOfStock
                                             ? 'Out of stock — part will be added as a REQUEST for manager approval.'
                                             : isInsufficient
-                                            ? `Only ${available} available — need ${partForm.quantity}. Will be added as a REQUEST.`
-                                            : `${available} in stock — will be reserved.`
+                                                ? `Only ${available} available — need ${partForm.quantity}. Will be added as a REQUEST.`
+                                                : `${available} in stock — will be reserved.`
                                         }
                                     </div>
                                 );
                             })()}
-
-                            {/* Quantity */}
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity</label>
                                 <input type="number" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })} className="input-field max-w-[200px]" min="1" />
                             </div>
-
                             <div className="flex gap-2">
                                 <button className="btn-secondary text-xs flex-1" onClick={() => { setShowPartForm(false); setSelectedInventoryPart(null); }}>{t('common.cancel')}</button>
                                 <button className="btn-primary text-xs flex-1" disabled={!selectedInventoryPart || actionLoading}
@@ -421,25 +595,23 @@ const WorkOrderDetail = () => {
                         <div className="space-y-2">
                             {wo.parts.map((part) => (
                                 <div key={part._id} className="glass-card p-4 flex items-start gap-3">
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                                        part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
                                         : part.status === 'REQUESTED' ? 'bg-orange-500/10 text-orange-500'
-                                        : 'bg-blue-500/10 text-blue-500'
-                                    }`}>
+                                            : 'bg-blue-500/10 text-blue-500'
+                                        }`}>
                                         {part.status === 'INSTALLED' ? <CheckCircle2 size={20} />
-                                        : part.status === 'REQUESTED' ? <AlertTriangle size={20} />
-                                        : <Package size={20} />}
+                                            : part.status === 'REQUESTED' ? <AlertTriangle size={20} />
+                                                : <Package size={20} />}
                                     </div>
                                     <div className="flex-1">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
-                                            <span className={`badge text-[10px] ${
-                                                part.status === 'INSTALLED' ? 'badge-green'
+                                            <span className={`badge text-[10px] ${part.status === 'INSTALLED' ? 'badge-green'
                                                 : part.status === 'REQUESTED' ? 'badge-orange'
-                                                : part.status === 'RESERVED' ? 'badge-blue'
-                                                : part.status === 'RECEIVED' ? 'badge-blue'
-                                                : 'badge-gray'
-                                            }`}>
+                                                    : part.status === 'RESERVED' ? 'badge-blue'
+                                                        : part.status === 'RECEIVED' ? 'badge-blue'
+                                                            : 'badge-gray'
+                                                }`}>
                                                 {part.status === 'REQUESTED' ? '⏳ AWAITING APPROVAL' : part.status}
                                             </span>
                                         </div>
@@ -486,7 +658,6 @@ const WorkOrderDetail = () => {
                     <div className="glass-card p-6">
                         <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.labour')}</h3>
                         <div className="flex flex-col gap-4">
-                            {/* Stats Summary */}
                             <div className="grid grid-cols-2 gap-4 mb-2">
                                 <div className="glass-card p-4 text-center">
                                     <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Estimated</p>
@@ -497,8 +668,6 @@ const WorkOrderDetail = () => {
                                     <p className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>{wo.actualLabourHours || 0}h</p>
                                 </div>
                             </div>
-
-                            {/* Automated/Manual Controls */}
                             <div className="grid grid-cols-1 gap-3">
                                 {wo.status === 'IN_PROGRESS' && (
                                     <button className="flex items-center justify-center gap-3 p-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer active:scale-95 shadow-lg w-full"
@@ -507,13 +676,11 @@ const WorkOrderDetail = () => {
                                         onClick={() => doAction(async () => {
                                             const reason = window.prompt('Please enter the pause reason:');
                                             if (reason === null) return;
-                                            if (!reason) throw new Error('Pause reason is required.');
-                                            await logLabour(id!, { action: 'PAUSE', technicianId: getUserId() || undefined, notes: reason });
-                                            // Status transition to PAUSED is handled by the Status Bar actions, 
-                                            // but if they just want to pause the timer without changing status? 
-                                            // Actually, the request says "progress status bar makes the timer run".
-                                            // So PAUSE action should probably also trigger status change to PAUSED.
-                                            await progressWorkOrderStatus(id!, 'PAUSED', reason);
+                                            if (!reason) {
+                                                toast.error('Pause reason is required.');
+                                                return;
+                                            }
+                                            return progressWorkOrderStatus(id!, 'PAUSED', reason, { pauseReason: reason });
                                         })}>
                                         <Pause size={24} />
                                         <div className="text-left">
@@ -522,14 +689,12 @@ const WorkOrderDetail = () => {
                                         </div>
                                     </button>
                                 )}
-
                                 {wo.status === 'PAUSED' && (
                                     <button className="flex items-center justify-center gap-3 p-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer active:scale-95 shadow-lg w-full"
                                         style={{ background: '#3498DB22', color: '#3498DB', border: '2px solid #3498DB44' }}
                                         disabled={actionLoading}
                                         onClick={() => doAction(async () => {
-                                            await logLabour(id!, { action: 'RESUME', technicianId: getUserId() || undefined });
-                                            await progressWorkOrderStatus(id!, 'IN_PROGRESS');
+                                            return progressWorkOrderStatus(id!, 'IN_PROGRESS');
                                         })}>
                                         <Play size={24} />
                                         <div className="text-left">
@@ -538,13 +703,12 @@ const WorkOrderDetail = () => {
                                         </div>
                                     </button>
                                 )}
-
                                 {(wo.status !== 'IN_PROGRESS' && wo.status !== 'PAUSED') && (
                                     <div className="glass-card p-6 text-center border-dashed border-2 opacity-60">
                                         <Clock size={32} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
                                         <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Labour Tracking</p>
                                         <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                                            {wo.status === 'QUALITY_CHECK' || wo.status === 'READY_FOR_RELEASE' || wo.status === 'VEHICLE_RELEASED' 
+                                            {wo.status === 'QUALITY_CHECK' || wo.status === 'READY_FOR_RELEASE' || wo.status === 'VEHICLE_RELEASED'
                                                 ? 'Work completed. Labour logs finalized.'
                                                 : 'Automatic timer starts when status is set to IN PROGRESS.'}
                                         </p>
@@ -602,52 +766,75 @@ const WorkOrderDetail = () => {
                     <div className="flex items-center justify-between">
                         <div className="space-y-1">
                             <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Repair Verification Photos</h3>
-                            <p className="text-xs text-[var(--text-dim)]">Minimum 4 photos are required to release the vehicle.</p>
+                            <p className="text-xs text-[var(--text-dim)]">Upload required photos to proceed with release.</p>
                         </div>
-                        <div className={`p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 ${wo.photos.length >= 4 ? 'bg-[var(--brand-lime-alpha)] border-[var(--brand-lime)]' : 'bg-[var(--bg-card)]'}`}>
+                        <div className={`p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
+                            ? 'bg-[var(--brand-lime-alpha)] border-[var(--brand-lime)]'
+                            : 'bg-[var(--bg-card)]'
+                            }`}>
                             <div className="flex items-center gap-1.5">
-                                <CheckCircle2 size={16} className={wo.photos.length >= 4 ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'} />
-                                <span className={`text-xs font-mono font-bold ${wo.photos.length >= 4 ? 'text-[var(--brand-lime)]' : 'text-[var(--text-main)]'}`}>
-                                    {wo.photos.length} / 4
+                                <CheckCircle2 size={16} className={
+                                    (wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
+                                        ? 'text-[var(--brand-lime)]'
+                                        : 'text-[var(--text-dim)]'
+                                } />
+                                <span className={`text-xs font-mono font-bold ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
+                                    ? 'text-[var(--brand-lime)]'
+                                    : 'text-[var(--text-main)]'
+                                    }`}>
+                                    {wo.photos.filter(p => (wo.requiredPhotos || []).some(rp => rp.label === p.caption)).length} / {(wo.requiredPhotos || []).length}
                                 </span>
                             </div>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {[0, 1, 2, 3].map((index) => {
-                            const photo = wo.photos[index];
+                        {(wo.requiredPhotos || []).map((rp) => {
+                            const photo = wo.photos.find(p => p.caption === rp.label);
                             return (
-                                <div key={index} className="relative group">
+                                <div key={rp.label} className="relative group">
                                     {photo ? (
                                         <div className="glass-card aspect-square rounded-2xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all duration-300">
-                                            <img src={photo.url} alt={`Repair ${index + 1}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                            <img src={photo.url} alt={rp.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                             <div className="absolute bottom-3 left-3 flex flex-col opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
                                                 <span className="text-[10px] font-bold text-white uppercase tracking-widest">{photo.stage || 'Repair'}</span>
                                                 <span className="text-[8px] text-white/70 font-mono italic">{new Date(photo.uploadedAt || '').toLocaleDateString()}</span>
                                             </div>
                                             <div className="absolute top-3 right-3 flex gap-1">
-                                                <div className="badge badge-gray text-[9px] bg-black/50 backdrop-blur-md border-0 text-white font-mono">SLOT {index + 1}</div>
+                                                <div className="badge badge-lime text-[9px] bg-black/50 backdrop-blur-md border-[var(--brand-lime)] text-[var(--brand-lime)] font-mono">{rp.label}</div>
+                                                <button 
+                                                    className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
+                                                    title="Remove Photo"
+                                                    disabled={actionLoading}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        if (window.confirm("Are you sure you want to remove this photo?")) {
+                                                            doAction(() => removePhoto(id!, photo._id));
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
                                             </div>
                                         </div>
                                     ) : (
-                                        <label className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] transition-all duration-300 cursor-pointer group shadow-sm bg-[var(--bg-card)]/50">
+                                        <label className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] transition-all duration-300 cursor-pointer group shadow-sm bg-[var(--bg-card)]/50 relative">
                                             <input
                                                 type="file"
                                                 className="hidden"
                                                 accept="image/*"
                                                 onChange={(e) => {
                                                     const file = e.target.files?.[0];
-                                                    if (file) doAction(() => addPhotoFile(id!, file, 'IN_PROGRESS'));
+                                                    if (file) doAction(() => addPhotoFile(id!, file, rp.stage as any || 'IN_PROGRESS', rp.label));
                                                 }}
                                                 disabled={actionLoading}
                                             />
                                             <div className="w-14 h-14 rounded-full bg-[var(--bg-input)] flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-[var(--brand-lime)] transition-all duration-500 group-active:scale-95">
                                                 <Camera size={28} className="text-[var(--text-dim)] group-hover:text-[var(--brand-black)]" />
                                             </div>
-                                            <span className="text-xs font-bold text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors">Slot {index + 1}</span>
-                                            <span className="text-[9px] font-medium text-[var(--text-dim)] uppercase tracking-widest mt-1 opacity-70">Click to Upload</span>
+                                            <span className="text-sm font-bold text-[var(--text-main)] group-hover:text-black transition-colors">{rp.label}</span>
+                                            {rp.isMandatory && <span className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mt-1">Required</span>}
                                             {actionLoading && (
                                                 <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-20">
                                                     <Loader2 size={32} className="animate-spin text-[var(--brand-lime)]" />
@@ -660,21 +847,193 @@ const WorkOrderDetail = () => {
                         })}
                     </div>
 
-                    {wo.photos.length > 4 && (
-                        <div className="pt-6 animate-fadeInUp">
-                            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-4 text-[var(--text-dim)]">Additional Photos ({wo.photos.length - 4})</h4>
-                            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                                {wo.photos.slice(4).map((p, idx) => (
-                                    <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
-                                        <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <span className="text-[8px] font-bold text-white uppercase tracking-widest">{p.stage}</span>
-                                        </div>
+                    <div className="pt-6 animate-fadeInUp">
+                        <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Photos</h4>
+                            <label className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer">
+                                <input type="file" className="hidden" accept="image/*"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) doAction(() => addPhotoFile(id!, file, 'IN_PROGRESS'));
+                                    }}
+                                />
+                                <PlusCircle size={12} /> Add More
+                            </label>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                            {wo.photos.filter(p => !(wo.requiredPhotos || []).some(rp => rp.label === p.caption)).map((p) => (
+                                <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
+                                    <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <span className="text-[8px] font-bold text-white uppercase tracking-widest">{p.stage}</span>
+                                        <button 
+                                            className="absolute top-2 right-2 w-6 h-6 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
+                                            title="Delete Photo"
+                                            disabled={actionLoading}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                if (window.confirm("Permanently delete this photo?")) {
+                                                    doAction(() => removePhoto(id!, p._id));
+                                                }
+                                            }}
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
                                     </div>
-                                ))}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'billing' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex flex-col lg:flex-row gap-6">
+                        <div className="flex-1 space-y-6">
+                            <div className="glass-card p-6 border-[var(--border-main)] rounded-2xl">
+                                <h3 className="text-sm font-bold text-[var(--text-main)] uppercase tracking-widest mb-6 flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--brand-lime)]"></div>
+                                    Service Bill Generation
+                                </h3>
+
+                                {!wo.serviceBillId ? (
+                                    <div className="space-y-6">
+                                        <div className="p-4 rounded-xl bg-[var(--brand-lime-alpha)] border border-[var(--brand-lime-alpha)]">
+                                            <div className="flex gap-4">
+                                                <div className="w-10 h-10 rounded-lg bg-[var(--brand-lime-alpha)] flex items-center justify-center text-[var(--brand-lime)] shrink-0">
+                                                    <Receipt size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium text-[var(--text-main)]">No bill generated yet</p>
+                                                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                                                        Once work is finalized, generate a service bill to calculate final costs.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase ml-1">Hourly Rate (AED)</label>
+                                                <input 
+                                                    type="number" 
+                                                    id="hourlyRate"
+                                                    defaultValue={150} 
+                                                    className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase ml-1">Tax Rate (%)</label>
+                                                <input 
+                                                    type="number" 
+                                                    id="taxRate"
+                                                    defaultValue={5} 
+                                                    className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                            disabled={actionLoading || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
+                                            onClick={() => {
+                                                const rate = (document.getElementById('hourlyRate') as HTMLInputElement)?.value;
+                                                const tax = (document.getElementById('taxRate') as HTMLInputElement)?.value;
+                                                doAction(() => generateBill(id!, { 
+                                                    hourlyRate: Number(rate), 
+                                                    taxRate: Number(tax) 
+                                                }));
+                                            }}
+                                        >
+                                            {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
+                                            Generate Final Bill
+                                        </button>
+                                        
+                                        {!['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED'].includes(wo.status) && (
+                                            <div className="flex items-center justify-center gap-2 text-red-500/80">
+                                                <AlertTriangle size={14} />
+                                                <span className="text-[10px] font-bold uppercase tracking-wider">Status must be QC or higher to generate bill</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        <div className="p-6 rounded-2xl bg-[var(--brand-lime-alpha)]/5 border border-[var(--brand-lime-alpha)] relative overflow-hidden">
+                                            <div className="flex justify-between items-start mb-6">
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-[var(--brand-lime)] uppercase tracking-wider">Bill Generated</p>
+                                                    <h4 className="text-xl font-bold text-[var(--text-main)] mt-1">Invoice Linked Successfully</h4>
+                                                </div>
+                                                <div className="w-12 h-12 rounded-xl bg-[var(--brand-lime-alpha)] flex items-center justify-center text-[var(--brand-lime)]">
+                                                    <CheckCircle2 size={24} />
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-4 py-4 border-y border-[var(--border-main)]">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-[var(--text-muted)]">Actual Labour ({wo.actualLabourHours} hrs)</span>
+                                                    <span className="text-[var(--text-main)] font-mono">{(wo.actualLabourHours || 0) * 150} AED</span>
+                                                </div>
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-[var(--text-muted)]">Parts Total</span>
+                                                    <span className="text-[var(--text-main)] font-mono">{wo.actualPartsCost || 0} AED</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-4 flex justify-between items-center">
+                                                <span className="text-sm font-bold text-[var(--text-main)] uppercase">Total Amount</span>
+                                                <span className="text-2xl font-black text-[var(--brand-lime)] font-mono">
+                                                    {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 150)} AED
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            className="w-full h-12 bg-transparent hover:bg-white/5 border border-[var(--border-main)] text-[var(--text-main)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
+                                            onClick={() => navigate(`/billing/bills/${wo.serviceBillId}`)}
+                                        >
+                                            View Detailed Invoice
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    )}
+
+                        <div className="w-full lg:w-80 space-y-6">
+                            <div className="glass-card p-6 border-[var(--border-main)] rounded-2xl">
+                                <h3 className="text-[10px] font-bold text-[var(--text-dim)] uppercase tracking-widest mb-4">Live Cost Tracker</h3>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                                <Package size={14} />
+                                            </div>
+                                            <span className="text-xs text-[var(--text-muted)]">Parts</span>
+                                        </div>
+                                        <span className="text-xs font-mono text-[var(--text-main)]">{wo.actualPartsCost || 0} AED</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center text-yellow-500">
+                                                <Clock size={14} />
+                                            </div>
+                                            <span className="text-xs text-[var(--text-muted)]">Labour</span>
+                                        </div>
+                                        <span className="text-xs font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * 150} AED</span>
+                                    </div>
+                                    <div className="h-px bg-[var(--border-main)] my-2"></div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-[var(--text-main)]">Subtotal</span>
+                                        <span className="text-sm font-bold text-[var(--brand-lime)]">
+                                            {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 150)} AED
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

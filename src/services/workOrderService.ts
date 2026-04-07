@@ -104,11 +104,13 @@ export interface WorkOrder {
     actualPartsCost: number;
     estimatedTotalCost: number;
     actualTotalCost: number;
+    serviceBillId?: string;
     tasks: WorkOrderTask[];
     parts: WorkOrderPart[];
     labourLog: LabourEntry[];
     qcChecklist: QCItem[];
     photos: WorkOrderPhoto[];
+    requiredPhotos: { label: string; description?: string; stage: PhotoStage; isMandatory: boolean }[];
     notes?: string;
     additionalWorkScope?: string;
     pauseReason?: string;
@@ -134,6 +136,8 @@ export interface CreateWorkOrderPayload {
     estimatedPartsCost?: number;
     estimatedTotalCost?: number;
     notes?: string;
+    requiredPhotos?: { label: string; description?: string; stage: string; isMandatory: boolean }[];
+    requiredParts?: { inventoryPartId?: string; partName: string; quantity: number; unitCost: number }[];
 }
 
 export const createWorkOrder = async (payload: CreateWorkOrderPayload): Promise<WorkOrder> => {
@@ -297,16 +301,27 @@ export const addPhoto = async (workOrderId: string, payload: AddPhotoPayload): P
     return response.data.data || response.data;
 };
 
-export const addPhotoFile = async (workOrderId: string, file: File, stage: PhotoStage = 'IN_PROGRESS'): Promise<WorkOrder> => {
+export const addPhotoFile = async (workOrderId: string, file: File, stage: PhotoStage = 'IN_PROGRESS', caption?: string): Promise<WorkOrder> => {
     const formData = new FormData();
     formData.append('photo', file);
     formData.append('stage', stage);
+    if (caption) formData.append('caption', caption);
     
-    const response = await api.post(`/api/work-orders/${workOrderId}/photos`, formData, {
+    const response = await api.post(`/api/work-orders/${workOrderId}/photos/upload`, formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
         },
     });
+    return response.data.data || response.data;
+};
+
+export const removePhoto = async (workOrderId: string, photoId: string): Promise<WorkOrder['photos']> => {
+    const response = await api.delete(`/api/work-orders/${workOrderId}/photos/${photoId}`);
+    return response.data.data || response.data;
+};
+
+export const generateBill = async (workOrderId: string, options?: { hourlyRate?: number; taxRate?: number; discount?: number; notes?: string }): Promise<any> => {
+    const response = await api.post(`/api/work-orders/${workOrderId}/billing/generate`, options);
     return response.data.data || response.data;
 };
 
@@ -318,4 +333,21 @@ export const releaseVehicle = async (
 ): Promise<WorkOrder> => {
     const response = await api.put(`/api/work-orders/${workOrderId}/release`, data || {});
     return response.data.data || response.data;
+};
+
+// ── System Settings (Workshop Approval Threshold) ───────────────────
+
+export const getApprovalThreshold = async (): Promise<number> => {
+    try {
+        const response = await api.get('/api/system-settings/WORK_ORDER_APPROVAL_THRESHOLD');
+        // Handle both response structures depending on API implementation
+        const val = response.data?.value ?? response.data?.data?.value ?? 200;
+        return typeof val === 'number' ? val : parseInt(val, 10) || 200;
+    } catch {
+        return 200; // default
+    }
+};
+
+export const updateApprovalThreshold = async (value: number): Promise<void> => {
+    await api.put('/api/system-settings/WORK_ORDER_APPROVAL_THRESHOLD', { value });
 };

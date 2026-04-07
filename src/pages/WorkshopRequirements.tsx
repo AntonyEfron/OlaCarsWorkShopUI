@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   ClipboardList, Package, Check, ArrowRight, Loader2, 
-  Search, Filter, ExternalLink, AlertCircle, ShoppingCart, CheckCircle2
+  Search, Filter, ExternalLink, AlertCircle, ShoppingCart, CheckCircle2, Shield
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import {
   type WorkshopRequirement, type InventoryPart 
 } from '../services/inventoryService';
 import { getUser, getUserRole } from '../utils/auth';
+import { getApprovalThreshold, updateApprovalThreshold } from '../services/workOrderService';
 
 const WorkshopRequirements = () => {
   const { t } = useTranslation();
@@ -23,11 +24,16 @@ const WorkshopRequirements = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'requirements' | 'low_stock'>('requirements');
+  const [activeTab, setActiveTab] = useState<'requirements' | 'low_stock' | 'settings'>('requirements');
+  const [threshold, setThreshold] = useState<number>(200);
+  const [saveLoading, setSaveLoading] = useState(false);
   const isManager = getUserRole() === 'workshopmanager';
 
   useEffect(() => {
     loadRequirements();
+    if (isManager) {
+      getApprovalThreshold().then(setThreshold);
+    }
   }, [branchId]);
 
   const loadRequirements = async () => {
@@ -126,7 +132,8 @@ const WorkshopRequirements = () => {
             <div 
                 className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-in-out shadow-lg"
                 style={{ 
-                    left: activeTab === 'requirements' ? '6px' : 'calc(50%)',
+                    left: activeTab === 'requirements' ? '6px' : activeTab === 'low_stock' ? 'calc(33.33% + 2px)' : 'calc(66.66% + 2px)',
+                    width: isManager ? 'calc(33.33% - 4px)' : 'calc(50% - 6px)',
                     background: 'var(--brand-lime)'
                 }}
             />
@@ -153,6 +160,17 @@ const WorkshopRequirements = () => {
                   </span>
                 )}
             </button>
+            {isManager && (
+              <button
+                  type="button"
+                  onClick={() => setActiveTab('settings')}
+                  className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
+                      activeTab === 'settings' ? 'text-black' : 'text-white/40 hover:text-white'
+                  }`}
+              >
+                  Settings
+              </button>
+            )}
         </div>
 
         <div className="flex gap-3">
@@ -336,6 +354,83 @@ const WorkshopRequirements = () => {
               ))}
             </div>
           )
+        )}
+        {activeTab === 'settings' && isManager && (
+          <div className="glass-card p-8 space-y-8 animate-fadeInUp">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] flex items-center justify-center">
+                <Shield size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Workshop Approval Settings</h3>
+                <p className="text-xs text-muted-foreground">Configure thresholds for automated vs manual work order approvals.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-2 px-1">
+                    Auto-Approval Threshold ($)
+                  </label>
+                  <p className="text-xs text-muted-foreground mb-4 px-1">
+                    Work orders with an estimated total cost below this value will be automatically approved (transition directly to START).
+                  </p>
+                  <div className="relative group">
+                    <input 
+                      type="number" 
+                      className="input-field pl-12 text-lg font-mono"
+                      value={threshold}
+                      onChange={(e) => setThreshold(Number(e.target.value))}
+                    />
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-mono opacity-40">$</div>
+                  </div>
+                </div>
+
+                <button 
+                  className="btn-primary w-full !py-4 shadow-[0_10px_20px_rgba(186,255,41,0.2)] hover:shadow-[0_15px_30px_rgba(186,255,41,0.3)]"
+                  disabled={saveLoading}
+                  onClick={async () => {
+                    setSaveLoading(true);
+                    try {
+                      await updateApprovalThreshold(threshold);
+                      toast.success('Approval threshold updated successfully');
+                    } catch (err: any) {
+                      toast.error('Failed to update settings');
+                    } finally {
+                      setSaveLoading(false);
+                    }
+                  }}
+                >
+                  {saveLoading ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />} Save Configuration
+                </button>
+              </div>
+
+              <div className="bg-white/5 rounded-3xl p-6 border border-white/5 flex flex-col justify-center">
+                <h4 className="text-sm font-bold flex items-center gap-2 mb-3">
+                  <AlertCircle size={16} className="text-orange-400" /> Current Logic
+                </h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-xs p-3 rounded-xl bg-black/40 border border-white/5">
+                    <span className="opacity-60 text-green-400">0 - {threshold}</span>
+                    <span className="font-bold">Auto-Approved</span>
+                  </div>
+                  <div className="flex justify-between text-xs p-3 rounded-xl bg-black/40 border border-white/5">
+                    <span className="opacity-60 text-orange-400">{threshold} - 1000</span>
+                    <span className="font-bold">Workshop Manager</span>
+                  </div>
+                  <div className="flex justify-between text-xs p-3 rounded-xl bg-black/40 border border-white/5">
+                    <span className="opacity-60 text-blue-400">1000 - 5000</span>
+                    <span className="font-bold">Country Manager</span>
+                  </div>
+                  <div className="flex justify-between text-xs p-3 rounded-xl bg-black/40 border border-white/5">
+                    <span className="opacity-60 text-purple-400">&gt; 5000</span>
+                    <span className="font-bold">Admin Level</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

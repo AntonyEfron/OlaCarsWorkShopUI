@@ -305,38 +305,45 @@ const Inventory = () => {
                       </div>
                     </td>
                     <td className="!pr-6 text-right">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => { setSelectedPart(part); setRestockQty(1); setShowRestockModal(true); }}
-                          className="p-2 rounded-lg hover:bg-[var(--brand-lime-alpha)] hover:text-[var(--brand-lime)] transition-colors"
-                          title="Restock"
-                        >
-                          < Truck size={16} />
-                        </button>
-                        <button 
-                          onClick={() => openEdit(part)}
-                          className="p-2 rounded-lg hover:bg-blue-500/10 hover:text-blue-500 transition-colors"
-                          title="Edit"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        {isManager && (
+                      {/* Stable container to prevent layout shift */}
+                      <div className="flex items-center justify-end min-w-[120px] h-10">
+                        {/* Hover Actions */}
+                        <div className="hidden group-hover:flex items-center gap-1 transition-all">
                           <button 
-                            onClick={async () => {
-                              if(window.confirm('Are you sure you want to delete this part?')) {
-                                await deletePart(part._id);
-                                loadParts();
-                              }
-                            }}
-                            className="p-2 rounded-lg hover:bg-red-500/10 hover:text-red-500 transition-colors"
-                            title="Delete"
+                            onClick={(e) => { e.stopPropagation(); setSelectedPart(part); setRestockQty(1); setShowRestockModal(true); }}
+                            className="p-2 rounded-lg hover:bg-[var(--brand-lime-alpha)] hover:text-[var(--brand-lime)] transition-colors"
+                            title="Restock"
                           >
-                            <Trash2 size={16} />
+                            < Truck size={16} />
                           </button>
-                        )}
-                      </div>
-                      <div className="group-hover:hidden py-2 px-1">
-                        <MoreHorizontal size={14} className="opacity-30 mx-auto" />
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); openEdit(part); }}
+                            className="p-2 rounded-lg hover:bg-blue-500/10 hover:text-blue-500 transition-colors"
+                            title="Edit"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          {isManager && (
+                            <button 
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if(window.confirm('Are you sure you want to delete this part?')) {
+                                  await deletePart(part._id);
+                                  loadParts();
+                                }
+                              }}
+                              className="p-2 rounded-lg hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                        
+                        {/* Default View - More Icon */}
+                        <div className="group-hover:hidden py-2 px-1">
+                          <MoreHorizontal size={14} className="opacity-30" />
+                        </div>
                       </div>
                     </td>
                   </tr>
