@@ -147,7 +147,7 @@ const WorkOrderDetail = () => {
         if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
         if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
         if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
-        if (['REJECTED', 'CANCELLED'].includes(status)) return 'badge-red';
+        if (['CANCELLED'].includes(status)) return 'badge-red';
         return 'badge-gray';
     };
     const fmtStatus = (s: string) => s.replace(/_/g, ' ');
@@ -428,7 +428,6 @@ const WorkOrderDetail = () => {
                         <t_tab.icon size={16} className="inline mr-1.5" />{t_tab.label}
                         {t_tab.key === 'tasks' && wo.tasks.length > 0 && <span className="ml-1 text-[10px] opacity-70">({wo.tasks.length})</span>}
                         {t_tab.key === 'parts' && wo.parts.length > 0 && <span className="ml-1 text-[10px] opacity-70">({wo.parts.length})</span>}
-                        {t_tab.key === 'photos' && wo.photos.length > 0 && <span className="ml-1 text-[10px] opacity-70">({wo.photos.length})</span>}
                     </button>
                 ))}
             </div>
