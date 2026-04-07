@@ -54,7 +54,7 @@ const Login = () => {
                 className="absolute inset-0 w-full h-full object-cover opacity-50 transition-opacity duration-1000"
                 style={{ filter: 'brightness(0.4) saturate(1.2)' }}
             >
-                <source src="/src/assets/loginbgvideo.mp4" type="video/mp4" />
+                <source src="/public/loginbgvideo.mp4" type="video/mp4" />
             </video>
 
             {/* Top Right Actions */}
