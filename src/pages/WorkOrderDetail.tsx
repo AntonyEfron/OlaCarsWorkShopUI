@@ -9,7 +9,7 @@ import {
 import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
-    generateBill, releaseVehicle,
+    generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
 } from '../services/workOrderService';
@@ -17,18 +17,16 @@ import { getUserId, getUser } from '../utils/auth';
 import { getParts, type InventoryPart } from '../services/inventoryService';
 import toast from 'react-hot-toast';
 
-type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'photos' | 'billing';
+type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'billing';
 
 const ALLOWED_TRANSITIONS: Partial<Record<WorkOrderStatus, WorkOrderStatus[]>> = {
-    DRAFT: ['PENDING_APPROVAL', 'START', 'CANCELLED'],
-    PENDING_APPROVAL: ['START', 'REJECTED', 'CANCELLED'],
+    DRAFT: ['START', 'CANCELLED'],
     START: ['VEHICLE_CHECKED_IN', 'CANCELLED'],
-    VEHICLE_CHECKED_IN: ['PARTS_REQUESTED', 'IN_PROGRESS'],
+    VEHICLE_CHECKED_IN: ['IN_PROGRESS'],
     PARTS_REQUESTED: ['PARTS_RECEIVED'],
     PARTS_RECEIVED: ['IN_PROGRESS'],
-    IN_PROGRESS: ['PAUSED', 'ADDITIONAL_WORK_FOUND', 'QUALITY_CHECK'],
+    IN_PROGRESS: ['PAUSED', 'QUALITY_CHECK'],
     PAUSED: ['IN_PROGRESS'],
-    ADDITIONAL_WORK_FOUND: ['PENDING_APPROVAL', 'IN_PROGRESS', 'START'],
     QUALITY_CHECK: ['READY_FOR_RELEASE', 'FAILED_QC'],
     FAILED_QC: ['IN_PROGRESS'],
     READY_FOR_RELEASE: ['VEHICLE_RELEASED'],
@@ -48,8 +46,7 @@ const WorkOrderDetail = () => {
         { key: 'tasks', label: t('workOrders.detail.tasks'), icon: ListChecks },
         { key: 'parts', label: t('workOrders.detail.parts'), icon: Package },
         { key: 'labour', label: t('workOrders.detail.labour'), icon: Clock },
-        { key: 'qc', label: t('workOrders.detail.qc'), icon: Shield },
-        { key: 'photos', label: 'Photos', icon: Camera },
+        { key: 'qc', label: 'QC & Photos', icon: Shield },
         { key: 'billing', label: 'Billing', icon: Receipt },
     ];
 
@@ -82,15 +79,31 @@ const WorkOrderDetail = () => {
     const [additionalWorkScope, setAdditionalWorkScope] = useState('');
     const [additionalWorkTask, setAdditionalWorkTask] = useState('');
 
+    /* ── Service Bill ── */
+    const [bill, setBill] = useState<any>(null);
+
     const load = useCallback(async () => {
         if (!id) return;
         try {
             const data = await getWorkOrderById(id);
             setWo(data);
+            if (data.serviceBillId) {
+                const b = await getServiceBillById(data.serviceBillId);
+                setBill(b);
+            } else {
+                setBill(null);
+            }
         } catch { /* interceptor */ } finally { setLoading(false); }
     }, [id]);
 
     useEffect(() => { load(); }, [load]);
+
+    // Ensure bill is loaded if serviceBillId exists but bill state is null
+    useEffect(() => {
+        if (wo?.serviceBillId && !bill) {
+            getServiceBillById(wo.serviceBillId).then(setBill).catch(() => {});
+        }
+    }, [wo?.serviceBillId, bill]);
 
     // Load inventory parts for the dropdown
     useEffect(() => {
@@ -107,9 +120,10 @@ const WorkOrderDetail = () => {
     const handleBackendError = (err: any) => {
         const msg = (err.response?.data?.message || err.message || '').toLowerCase();
         if (msg.includes('part')) setActiveTab('parts');
-        else if (msg.includes('photo')) setActiveTab('photos');
         else if (msg.includes('task')) setActiveTab('tasks');
+        else if (msg.includes('photo') || msg.includes('qc')) setActiveTab('qc');
         else if (msg.includes('odometer') || msg.includes('entry') || msg.includes('additional work')) setActiveTab('overview');
+        else if (msg.includes('payment') || msg.includes('bill')) setActiveTab('billing');
         return err;
     };
 
@@ -130,7 +144,6 @@ const WorkOrderDetail = () => {
     const getStatusBadge = (status: string) => {
         if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
         if (['DRAFT'].includes(status)) return 'badge-gray';
-        if (['PENDING_APPROVAL'].includes(status)) return 'badge-orange font-bold animate-pulse';
         if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
         if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
         if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
@@ -176,27 +189,15 @@ const WorkOrderDetail = () => {
             {/* ── Status Stepper (Workflow) ── */}
             <StatusStepper currentStatus={wo.status} t_func={t} />
 
-            {/* Approval Notice */}
-            {wo.status === 'PENDING_APPROVAL' && (
-                <div className="glass-card p-4 border-orange-500/20 bg-orange-500/5 flex items-center gap-4 animate-fadeInUp">
-                    <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500">
-                        <Shield size={20} />
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold text-orange-400">Manager Approval Required</h4>
-                        <p className="text-xs text-muted-foreground">Estimated cost exceeds the auto-approval threshold. A manager must review and approve before work can proceed.</p>
-                    </div>
-                </div>
-            )}
 
             {/* ── Status Actions ── */}
             {nextStatuses.length > 0 && (
                 <div className="glass-card p-4">
                     <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>{t('workOrders.detail.actions')}</p>
                     <div className="flex flex-wrap gap-2">
-                        {nextStatuses.map((ns) => (
+                        {nextStatuses.filter(ns => ns !== 'VEHICLE_RELEASED').map((ns) => (
                             <button key={ns} disabled={actionLoading}
-                                className={`btn-${ns === 'START' && wo.status === 'PENDING_APPROVAL' ? 'primary' : 'secondary'} text-xs !py-2 !px-4`}
+                                className="btn-secondary text-xs !py-2 !px-4"
                                 onClick={() => doAction(async () => {
                                     let updateData: any = ns === 'IN_PROGRESS' ? { assignedTechnician: getUserId() || undefined } : undefined;
 
@@ -205,16 +206,11 @@ const WorkOrderDetail = () => {
                                         return; // Modal handles the submission
                                     }
 
-                                    if (ns === 'ADDITIONAL_WORK_FOUND') {
-                                        setShowAdditionalWorkModal(true);
-                                        return; // Modal handles the rest
-                                    }
-
-                                    if (ns === 'REJECTED' || ns === 'PAUSED') {
-                                        const promptMsg = ns === 'REJECTED' ? 'Reason for rejection:' : 'Reason for pausing:';
+                                    if (ns === 'PAUSED') {
+                                        const promptMsg = 'Reason for pausing:';
                                         const reason = window.prompt(promptMsg);
                                         if (!reason) return;
-                                        updateData = ns === 'REJECTED' ? { rejectionReason: reason } : { pauseReason: reason };
+                                        updateData = { pauseReason: reason };
                                     }
 
                                     if (ns === 'READY_FOR_RELEASE') {
@@ -223,34 +219,66 @@ const WorkOrderDetail = () => {
                                         );
                                         if (missingMandatory.length > 0) {
                                             toast.error(`Please upload mandatory photos: ${missingMandatory.map(m => m.label).join(', ')}`);
-                                            setActiveTab('photos');
+                                            setActiveTab('qc');
                                             return;
                                         }
                                     }
 
-                                    return progressWorkOrderStatus(id!, ns, undefined, updateData);
-                                })}
-                            >
-                                {ns === 'START' && wo.status === 'PENDING_APPROVAL' ? <CheckCircle2 size={14} className="mr-1" /> : <ChevronRight size={14} />}
-                                {ns === 'START' && wo.status === 'PENDING_APPROVAL' ? 'Approve & Start' : fmtStatus(ns)}
-                            </button>
-                        ))}
-                        {wo.status === 'READY_FOR_RELEASE' && (
-                            <button disabled={actionLoading} className="btn-primary text-xs !py-2 !px-4"
-                                onClick={() => {
-                                    const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
-                                        rp.isMandatory && !wo.photos.some(p => p.caption === rp.label)
-                                    );
-                                    if (missingMandatory.length > 0) {
-                                        toast.error(`Mandatory photos missing: ${missingMandatory.map(m => m.label).join(', ')}`);
-                                        setActiveTab('photos');
+                                    if (wo.status === 'VEHICLE_CHECKED_IN' && wo.tasks.length === 0) {
+                                        toast.error("Please add at least one task before proceeding.");
+                                        setActiveTab('tasks');
                                         return;
                                     }
-                                    doAction(() => releaseVehicle(id!, { odometerAtRelease: releaseOdometer ? Number(releaseOdometer) : undefined, releaseNotes: releaseNotes || undefined }));
-                                }}
+
+                                    const res = await progressWorkOrderStatus(id!, ns, undefined, updateData);
+                                    if (ns === 'IN_PROGRESS') {
+                                        setActiveTab('labour');
+                                    } else if (ns === 'QUALITY_CHECK') {
+                                        setActiveTab('qc');
+                                    } else if (ns === 'READY_FOR_RELEASE') {
+                                        setActiveTab('billing');
+                                    }
+                                    return res;
+                                })}
                             >
-                                <CheckCircle2 size={14} /> {t('workOrders.detail.release')}
+                                <ChevronRight size={14} />
+                                {fmtStatus(ns)}
                             </button>
+                        ))}
+
+                        {wo.status === 'IN_PROGRESS' && (
+                            <button disabled={actionLoading} className="btn-secondary !border-orange/30 !text-orange text-xs !py-2 !px-4"
+                                onClick={() => setShowAdditionalWorkModal(true)}
+                            >
+                                <AlertTriangle size={14} /> ADDITIONAL WORK FOUND
+                            </button>
+                        )}
+
+                        {wo.status === 'READY_FOR_RELEASE' && (
+                            <div className="flex flex-col gap-2">
+                                <button 
+                                    disabled={actionLoading || !bill || bill.paymentStatus !== 'PAID'} 
+                                    className={`btn-primary text-xs !py-2 !px-4 ${(!bill || bill.paymentStatus !== 'PAID') ? 'opacity-50 !cursor-not-allowed grayscale' : ''}`}
+                                    onClick={() => {
+                                        const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
+                                            rp.isMandatory && !wo.photos.some(p => p.caption === rp.label)
+                                        );
+                                        if (missingMandatory.length > 0) {
+                                            toast.error(`Mandatory photos missing: ${missingMandatory.map(m => m.label).join(', ')}`);
+                                            setActiveTab('qc');
+                                            return;
+                                        }
+                                        doAction(() => releaseVehicle(id!, { odometerAtRelease: releaseOdometer ? Number(releaseOdometer) : undefined, releaseNotes: releaseNotes || undefined }));
+                                    }}
+                                >
+                                    <CheckCircle2 size={14} /> Release Vehicle
+                                </button>
+                                {(!bill || bill.paymentStatus !== 'PAID') && (
+                                    <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider animate-pulse">
+                                        ⚠️ Payment Required Before Release
+                                    </p>
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>
@@ -302,6 +330,7 @@ const WorkOrderDetail = () => {
                                     });
                                     setShowOdometerModal(false);
                                     setOdometerEntry('');
+                                    setActiveTab('tasks');
                                     return res;
                                 })}
                             >
@@ -366,26 +395,25 @@ const WorkOrderDetail = () => {
                                 className="btn-primary flex-1 text-xs"
                                 disabled={!additionalWorkScope || !additionalWorkTask || actionLoading}
                                 onClick={() => doAction(async () => {
-                                    // 1. Progress Status
-                                    const res = await progressWorkOrderStatus(id!, 'ADDITIONAL_WORK_FOUND', undefined, {
-                                        additionalWorkScope
+                                    // 1. Add the additional task
+                                    const res = await addTask(id!, {
+                                        description: `[ADDITIONAL WORK] ${additionalWorkTask}`,
+                                        category: 'Mechanical',
+                                        estimatedHours: 1,
+                                        notes: additionalWorkScope
                                     });
 
-                                    // 2. Add concrete task
-                                    await addTask(id!, {
-                                        description: additionalWorkTask,
-                                        category: 'Mechanical',
-                                        estimatedHours: 1
-                                    });
+                                    // 2. record the finding in status history without changing status
+                                    await progressWorkOrderStatus(id!, wo!.status, `Additional work identified: ${additionalWorkScope}`);
 
                                     setShowAdditionalWorkModal(false);
                                     setAdditionalWorkScope('');
                                     setAdditionalWorkTask('');
-                                    load(); // Refresh WO to show new task and status
+                                    load(); 
                                     return res;
                                 })}
                             >
-                                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />} {t('common.confirm')}
+                                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} {t('common.confirm')}
                             </button>
                         </div>
                     </div>
@@ -720,136 +748,144 @@ const WorkOrderDetail = () => {
                 </div>
             )}
 
-            {/* ══════════════════ QC TAB ══════════════════ */}
+            {/* ══════════════════ QC & PHOTOS TAB ══════════════════ */}
             {activeTab === 'qc' && (
-                <div className="space-y-4">
-                    <div className="glass-card p-5">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.qc')} ({wo.qcChecklist.length})</h3>
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {/* Photos Section */}
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Repair Verification Photos</h3>
+                                <p className="text-xs text-[var(--text-dim)]">Upload required photos to proceed with release.</p>
+                            </div>
+                            <div className={`p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
+                                ? 'bg-[var(--brand-lime-alpha)] border-[var(--brand-lime)]'
+                                : 'bg-[var(--bg-card)]'
+                                }`}>
+                                <div className="flex items-center gap-1.5">
+                                    <CheckCircle2 size={16} className={
+                                        (wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
+                                            ? 'text-[var(--brand-lime)]'
+                                            : 'text-[var(--text-dim)]'
+                                    } />
+                                    <span className={`text-xs font-mono font-bold ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
+                                        ? 'text-[var(--brand-lime)]'
+                                        : 'text-[var(--text-main)]'
+                                        }`}>
+                                        {wo.photos.filter(p => (wo.requiredPhotos || []).some(rp => rp.label === p.caption)).length} / {(wo.requiredPhotos || []).length}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {(wo.requiredPhotos || []).map((rp) => {
+                                const photo = wo.photos.find(p => p.caption === rp.label);
+                                return (
+                                    <div key={rp.label} className="relative group">
+                                        {photo ? (
+                                            <div className="glass-card aspect-square rounded-2xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all duration-300">
+                                                <img src={photo.url} alt={rp.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                <div className="absolute bottom-3 left-3 flex flex-col opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
+                                                    <span className="text-[10px] font-bold text-white uppercase tracking-widest">{photo.stage || 'Repair'}</span>
+                                                    <span className="text-[8px] text-white/70 font-mono italic">{new Date(photo.uploadedAt || '').toLocaleDateString()}</span>
+                                                </div>
+                                                <div className="absolute top-3 right-3 flex gap-1">
+                                                    <div className="badge badge-lime text-[9px] bg-black/50 backdrop-blur-md border-[var(--brand-lime)] text-[var(--brand-lime)] font-mono">{rp.label}</div>
+                                                    <button 
+                                                        className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
+                                                        title="Remove Photo"
+                                                        disabled={actionLoading}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            if (window.confirm("Are you sure you want to remove this photo?")) {
+                                                                doAction(() => removePhoto(id!, photo._id));
+                                                            }
+                                                        }}
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <label className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] transition-all duration-300 cursor-pointer group shadow-sm bg-[var(--bg-card)]/50 relative">
+                                                <input
+                                                    type="file"
+                                                    className="hidden"
+                                                    accept="image/*"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) doAction(() => addPhotoFile(id!, file, rp.stage as any || 'IN_PROGRESS', rp.label));
+                                                    }}
+                                                    disabled={actionLoading}
+                                                />
+                                                <div className="w-14 h-14 rounded-full bg-[var(--bg-input)] flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-[var(--brand-lime)] transition-all duration-500 group-active:scale-95">
+                                                    <Camera size={28} className="text-[var(--text-dim)] group-hover:text-[var(--brand-black)]" />
+                                                </div>
+                                                <span className="text-sm font-bold text-[var(--text-main)] group-hover:text-black transition-colors">{rp.label}</span>
+                                                {rp.isMandatory && <span className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mt-1">Required</span>}
+                                                {actionLoading && (
+                                                    <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-20">
+                                                        <Loader2 size={32} className="animate-spin text-[var(--brand-lime)]" />
+                                                    </div>
+                                                )}
+                                            </label>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* QC Checklist Section */}
+                    <div className="glass-card p-6 rounded-2xl border-[var(--border-main)] hover:border-[var(--brand-lime)]/30 transition-all duration-300">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime-alpha)] flex items-center justify-center text-[var(--brand-lime)]">
+                                    <Shield size={20} />
+                                </div>
+                                <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.qc')} Checklist ({wo.qcChecklist.length})</h3>
+                            </div>
                             {wo.qcChecklist.length === 0 && (
-                                <button className="btn-primary text-xs !py-2" disabled={actionLoading}
+                                <button className="btn-primary text-xs !py-2 !px-4" disabled={actionLoading}
                                     onClick={() => doAction(() => generateQC(id!))}>
-                                    <Shield size={14} /> Generate Checklist
+                                    <PlusCircle size={14} /> Generate Standard Checklist
                                 </button>
                             )}
                         </div>
-                        {wo.qcChecklist.map((qc) => (
-                            <div key={qc._id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: 'var(--border-main)' }}>
-                                <div className="flex-1">
-                                    <p className="text-sm" style={{ color: 'var(--text-main)' }}>{qc.checkItem}</p>
-                                </div>
-                                <div className="flex gap-1">
-                                    {(['PASS', 'FAIL', 'NA'] as const).map((r) => (
-                                        <button key={r}
-                                            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer`}
-                                            style={{
-                                                background: qc.result === r ? (r === 'PASS' ? '#27AE6033' : r === 'FAIL' ? '#E74C3C33' : '#6B728033') : 'var(--bg-input)',
-                                                color: qc.result === r ? (r === 'PASS' ? '#27AE60' : r === 'FAIL' ? '#E74C3C' : '#6B7280') : 'var(--text-dim)',
-                                                border: `1px solid ${qc.result === r ? (r === 'PASS' ? '#27AE6055' : r === 'FAIL' ? '#E74C3C55' : '#6B728055') : 'var(--border-main)'}`,
-                                            }}
-                                            disabled={actionLoading}
-                                            onClick={() => doAction(() => submitQC(id!, [{ checkItem: qc.checkItem, result: r }]))}
-                                        >
-                                            {r}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* ══════════════════ PHOTOS TAB ══════════════════ */}
-            {activeTab === 'photos' && (
-                <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Repair Verification Photos</h3>
-                            <p className="text-xs text-[var(--text-dim)]">Upload required photos to proceed with release.</p>
-                        </div>
-                        <div className={`p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
-                            ? 'bg-[var(--brand-lime-alpha)] border-[var(--brand-lime)]'
-                            : 'bg-[var(--bg-card)]'
-                            }`}>
-                            <div className="flex items-center gap-1.5">
-                                <CheckCircle2 size={16} className={
-                                    (wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
-                                        ? 'text-[var(--brand-lime)]'
-                                        : 'text-[var(--text-dim)]'
-                                } />
-                                <span className={`text-xs font-mono font-bold ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
-                                    ? 'text-[var(--brand-lime)]'
-                                    : 'text-[var(--text-main)]'
-                                    }`}>
-                                    {wo.photos.filter(p => (wo.requiredPhotos || []).some(rp => rp.label === p.caption)).length} / {(wo.requiredPhotos || []).length}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {(wo.requiredPhotos || []).map((rp) => {
-                            const photo = wo.photos.find(p => p.caption === rp.label);
-                            return (
-                                <div key={rp.label} className="relative group">
-                                    {photo ? (
-                                        <div className="glass-card aspect-square rounded-2xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all duration-300">
-                                            <img src={photo.url} alt={rp.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            <div className="absolute bottom-3 left-3 flex flex-col opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
-                                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">{photo.stage || 'Repair'}</span>
-                                                <span className="text-[8px] text-white/70 font-mono italic">{new Date(photo.uploadedAt || '').toLocaleDateString()}</span>
-                                            </div>
-                                            <div className="absolute top-3 right-3 flex gap-1">
-                                                <div className="badge badge-lime text-[9px] bg-black/50 backdrop-blur-md border-[var(--brand-lime)] text-[var(--brand-lime)] font-mono">{rp.label}</div>
-                                                <button 
-                                                    className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
-                                                    title="Remove Photo"
-                                                    disabled={actionLoading}
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        if (window.confirm("Are you sure you want to remove this photo?")) {
-                                                            doAction(() => removePhoto(id!, photo._id));
-                                                        }
-                                                    }}
-                                                >
-                                                    <Trash2 size={12} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <label className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] transition-all duration-300 cursor-pointer group shadow-sm bg-[var(--bg-card)]/50 relative">
-                                            <input
-                                                type="file"
-                                                className="hidden"
-                                                accept="image/*"
-                                                onChange={(e) => {
-                                                    const file = e.target.files?.[0];
-                                                    if (file) doAction(() => addPhotoFile(id!, file, rp.stage as any || 'IN_PROGRESS', rp.label));
-                                                }}
+                        <div className="space-y-2">
+                            {wo.qcChecklist.map((qc) => (
+                                <div key={qc._id} className="flex items-center gap-4 py-3 px-4 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-[var(--border-main)] group">
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{qc.checkItem}</p>
+                                    </div>
+                                    <div className="flex gap-1.5">
+                                        {(['PASS', 'FAIL', 'NA'] as const).map((r) => (
+                                            <button key={r}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all transform active:scale-95 ${
+                                                    qc.result === r 
+                                                        ? r === 'PASS' ? 'bg-[#27AE60] text-white shadow-lg shadow-green-500/20' 
+                                                        : r === 'FAIL' ? 'bg-[#E74C3C] text-white shadow-lg shadow-red-500/20' 
+                                                        : 'bg-gray-500 text-white shadow-lg shadow-gray-500/20'
+                                                        : 'bg-[var(--bg-input)] text-[var(--text-dim)] border border-[var(--border-main)] opacity-50 hover:opacity-100'
+                                                }`}
                                                 disabled={actionLoading}
-                                            />
-                                            <div className="w-14 h-14 rounded-full bg-[var(--bg-input)] flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-[var(--brand-lime)] transition-all duration-500 group-active:scale-95">
-                                                <Camera size={28} className="text-[var(--text-dim)] group-hover:text-[var(--brand-black)]" />
-                                            </div>
-                                            <span className="text-sm font-bold text-[var(--text-main)] group-hover:text-black transition-colors">{rp.label}</span>
-                                            {rp.isMandatory && <span className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mt-1">Required</span>}
-                                            {actionLoading && (
-                                                <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-20">
-                                                    <Loader2 size={32} className="animate-spin text-[var(--brand-lime)]" />
-                                                </div>
-                                            )}
-                                        </label>
-                                    )}
+                                                onClick={() => doAction(() => submitQC(id!, [{ checkItem: qc.checkItem, result: r }]))}
+                                            >
+                                                {r}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
                     </div>
 
-                    <div className="pt-6 animate-fadeInUp">
+                    {/* Additional Photos Section */}
+                    <div className="pt-6 border-t border-[var(--border-main)]">
                         <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Photos</h4>
+                            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Reference Photos</h4>
                             <label className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer">
                                 <input type="file" className="hidden" accept="image/*"
                                     onChange={(e) => {
@@ -865,9 +901,8 @@ const WorkOrderDetail = () => {
                                 <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
                                     <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <span className="text-[8px] font-bold text-white uppercase tracking-widest">{p.stage}</span>
                                         <button 
-                                            className="absolute top-2 right-2 w-6 h-6 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
+                                            className="w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
                                             title="Delete Photo"
                                             disabled={actionLoading}
                                             onClick={(e) => {
@@ -877,7 +912,7 @@ const WorkOrderDetail = () => {
                                                 }
                                             }}
                                         >
-                                            <Trash2 size={12} />
+                                            <Trash2 size={14} />
                                         </button>
                                     </div>
                                 </div>
@@ -989,13 +1024,52 @@ const WorkOrderDetail = () => {
                                             </div>
                                         </div>
 
-                                        <button 
-                                            className="w-full h-12 bg-transparent hover:bg-white/5 border border-[var(--border-main)] text-[var(--text-main)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
-                                            onClick={() => navigate(`/billing/bills/${wo.serviceBillId}`)}
-                                        >
-                                            View Detailed Invoice
-                                            <ChevronRight size={16} />
-                                        </button>
+                                        <div className="flex gap-4">
+                                            <button 
+                                                className="w-full h-12 bg-transparent hover:bg-white/5 border border-[var(--border-main)] text-[var(--text-main)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
+                                                onClick={() => navigate(`/billing/bills/${wo.serviceBillId}`)}
+                                            >
+                                                View Detailed Invoice
+                                                <ChevronRight size={16} />
+                                            </button>
+                                            <button 
+                                                className={`w-full h-12 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${
+                                                    bill?.paymentStatus === 'PAID' 
+                                                    ? 'bg-green-500/20 text-green-500 border border-green-500/30 cursor-default' 
+                                                    : 'bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] text-[var(--brand-black)] active:scale-[0.98]'
+                                                }`}
+                                                disabled={actionLoading || bill?.paymentStatus === 'PAID'}
+                                                onClick={() => {
+                                                    if (wo.serviceBillId) {
+                                                        doAction(async () => {
+                                                            let currentBill = bill;
+                                                            if (!currentBill) {
+                                                                currentBill = await getServiceBillById(wo.serviceBillId!);
+                                                                setBill(currentBill);
+                                                            }
+
+                                                            if (currentBill.paymentStatus === 'PAID') {
+                                                                toast.success('Bill is already paid');
+                                                                return;
+                                                            }
+                                                            
+                                                            if (currentBill.status === 'DRAFT' || currentBill.status === 'PENDING_APPROVAL') {
+                                                                await approveBill(wo.serviceBillId!);
+                                                            }
+                                                            
+                                                            await markBillPaid(wo.serviceBillId!, 'Cash');
+                                                            toast.success('Payment completed');
+                                                            
+                                                            // Force a refresh of everything
+                                                            await load();
+                                                        });
+                                                    }
+                                                }}
+                                            >
+                                                <CheckCircle2 size={16} />
+                                                {bill?.paymentStatus === 'PAID' ? 'PAID' : 'Payment Complete'}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -1049,9 +1123,9 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 );
 
 const PHASES = [
-    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'START', 'REJECTED'] },
+    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'START'] },
     { key: 'reception', label: 'Reception', statuses: ['VEHICLE_CHECKED_IN'] },
-    { key: 'repair', label: 'Repair', statuses: ['PARTS_REQUESTED', 'PARTS_RECEIVED', 'IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'] },
+    { key: 'repair', label: 'Repair', statuses: ['PARTS_REQUESTED', 'PARTS_RECEIVED', 'IN_PROGRESS', 'PAUSED'] },
     { key: 'qc', label: 'QC', statuses: ['QUALITY_CHECK', 'FAILED_QC'] },
     { key: 'release', label: 'Release', statuses: ['READY_FOR_RELEASE', 'VEHICLE_RELEASED'] },
 ];

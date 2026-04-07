@@ -3,7 +3,7 @@ import api from './api';
 // ── Enums / Types ────────────────────────────────────────────────────
 
 export type WorkOrderStatus =
-    | 'DRAFT' | 'PENDING_APPROVAL' | 'START' | 'REJECTED'
+    | 'DRAFT' | 'START'
     | 'VEHICLE_CHECKED_IN' | 'PARTS_REQUESTED' | 'PARTS_RECEIVED'
     | 'IN_PROGRESS' | 'PAUSED' | 'ADDITIONAL_WORK_FOUND'
     | 'QUALITY_CHECK' | 'FAILED_QC' | 'READY_FOR_RELEASE'
@@ -322,6 +322,21 @@ export const removePhoto = async (workOrderId: string, photoId: string): Promise
 
 export const generateBill = async (workOrderId: string, options?: { hourlyRate?: number; taxRate?: number; discount?: number; notes?: string }): Promise<any> => {
     const response = await api.post(`/api/work-orders/${workOrderId}/billing/generate`, options);
+    return response.data.data || response.data;
+};
+
+export const approveBill = async (billId: string): Promise<any> => {
+    const response = await api.put(`/api/service-bills/${billId}/approve`);
+    return response.data.data || response.data;
+};
+
+export const markBillPaid = async (billId: string, paymentMethod: string = 'Cash', paymentReference?: string): Promise<any> => {
+    const response = await api.put(`/api/service-bills/${billId}/pay`, { paymentMethod, paymentReference });
+    return response.data.data || response.data;
+};
+
+export const getServiceBillById = async (billId: string): Promise<any> => {
+    const response = await api.get(`/api/service-bills/${billId}`);
     return response.data.data || response.data;
 };
 
