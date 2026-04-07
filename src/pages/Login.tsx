@@ -6,6 +6,7 @@ import { setToken, setUser } from '../utils/auth';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import loginVideo from '../assets/loginbgvideo.mp4';
 
 const Login = () => {
     const { t } = useTranslation();
@@ -54,7 +55,7 @@ const Login = () => {
                 className="absolute inset-0 w-full h-full object-cover opacity-50 transition-opacity duration-1000"
                 style={{ filter: 'brightness(0.4) saturate(1.2)' }}
             >
-                <source src="/src/assets/loginbgvideo.mp4" type="video/mp4" />
+                <source src={loginVideo} type="video/mp4" />
             </video>
 
             {/* Top Right Actions */}
