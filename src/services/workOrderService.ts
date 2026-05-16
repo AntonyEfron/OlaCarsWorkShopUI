@@ -306,7 +306,7 @@ export const addPhotoFile = async (workOrderId: string, file: File, stage: Photo
     formData.append('photo', file);
     formData.append('stage', stage);
     if (caption) formData.append('caption', caption);
-    
+
     const response = await api.post(`/api/work-orders/${workOrderId}/photos/upload`, formData, {
         headers: {
             'Content-Type': 'multipart/form-data',

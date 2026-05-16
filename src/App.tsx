@@ -15,6 +15,7 @@ import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
+import ServiceBills from './pages/ServiceBills';
 
 function App() {
     useEffect(() => {
@@ -66,6 +67,7 @@ function App() {
                             <Route path="/inventory" element={<Inventory />} />
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
+                            <Route path="/service-bills" element={<ServiceBills />} />
                             <Route path="/profile" element={<Profile />} />
                         </Route>
                     </Route>

@@ -1007,18 +1007,18 @@ const WorkOrderDetail = () => {
                                             <div className="space-y-4 py-4 border-y border-[var(--border-main)]">
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-[var(--text-muted)]">Actual Labour ({wo.actualLabourHours} hrs)</span>
-                                                    <span className="text-[var(--text-main)] font-mono">{(wo.actualLabourHours || 0) * 150} AED</span>
+                                                    <span className="text-[var(--text-main)] font-mono">{(wo.actualLabourHours || 0) * (bill?.labourSummary?.hourlyRate || 50)} $</span>
                                                 </div>
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-[var(--text-muted)]">Parts Total</span>
-                                                    <span className="text-[var(--text-main)] font-mono">{wo.actualPartsCost || 0} AED</span>
+                                                    <span className="text-[var(--text-main)] font-mono">{wo.actualPartsCost || 0} $</span>
                                                 </div>
                                             </div>
 
                                             <div className="pt-4 flex justify-between items-center">
                                                 <span className="text-sm font-bold text-[var(--text-main)] uppercase">Total Amount</span>
                                                 <span className="text-2xl font-black text-[var(--brand-lime)] font-mono">
-                                                    {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 150)} AED
+                                                    {bill?.totalAmount?.toLocaleString() || ((wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 50))} $
                                                 </span>
                                             </div>
                                         </div>
@@ -1026,9 +1026,9 @@ const WorkOrderDetail = () => {
                                         <div className="flex gap-4">
                                             <button 
                                                 className="w-full h-12 bg-transparent hover:bg-white/5 border border-[var(--border-main)] text-[var(--text-main)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
-                                                onClick={() => navigate(`/billing/bills/${wo.serviceBillId}`)}
+                                                onClick={() => navigate(`/service-bills`)}
                                             >
-                                                View Detailed Invoice
+                                                Go to Bills Management
                                                 <ChevronRight size={16} />
                                             </button>
                                             <button 
@@ -1094,13 +1094,13 @@ const WorkOrderDetail = () => {
                                             </div>
                                             <span className="text-xs text-[var(--text-muted)]">Labour</span>
                                         </div>
-                                        <span className="text-xs font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * 150} AED</span>
+                                        <span className="text-xs font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * 50} $</span>
                                     </div>
                                     <div className="h-px bg-[var(--border-main)] my-2"></div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-[var(--text-main)]">Subtotal</span>
                                         <span className="text-sm font-bold text-[var(--brand-lime)]">
-                                            {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 150)} AED
+                                            {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 50)} $
                                         </span>
                                     </div>
                                 </div>

@@ -12,6 +12,7 @@ import {
     ChevronRight,
     Package,
     ShoppingCart,
+    Receipt,
 } from 'lucide-react';
 import { logout, getUser, getUserRole } from '../utils/auth';
 
@@ -34,6 +35,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         { path: '/work-orders', icon: ClipboardList, label: t('common.workOrders') },
         { path: '/work-orders/create', icon: PlusCircle, label: t('workOrders.list.new') },
         { path: '/inventory', icon: Package, label: 'Inventory' },
+        { path: '/service-bills', icon: Receipt, label: 'Service Bills' },
         { path: '/requirements', icon: ShoppingCart, label: 'Part Requirements' },
         { path: '/purchase-requests', icon: ShoppingCart, label: 'Purchase Requests' },
     ];
