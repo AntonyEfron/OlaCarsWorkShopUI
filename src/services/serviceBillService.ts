@@ -27,7 +27,8 @@ export interface ServiceBill {
   billNumber: string;
   workOrderId: string | any;
   vehicleId: string | any;
-  branchId: string | any;
+  branchId: string | { _id: string; name: string };
+  isDriverBilled: boolean;
   status: BillStatus;
   lineItems: BillLineItem[];
   subtotal: number;
@@ -38,6 +39,7 @@ export interface ServiceBill {
   amountPaid: number;
   paymentStatus: PaymentStatus;
   payments: BillPayment[];
+  invoiceNumber?: string;
   createdAt: string;
 }
 

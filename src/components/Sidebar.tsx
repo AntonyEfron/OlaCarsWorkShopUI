@@ -13,6 +13,7 @@ import {
     Package,
     ShoppingCart,
     Receipt,
+    FileText,
 } from 'lucide-react';
 import { logout, getUser, getUserRole } from '../utils/auth';
 
@@ -36,6 +37,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         { path: '/work-orders/create', icon: PlusCircle, label: t('workOrders.list.new') },
         { path: '/inventory', icon: Package, label: 'Inventory' },
         { path: '/service-bills', icon: Receipt, label: 'Service Bills' },
+        { path: '/workshop-invoices', icon: FileText, label: 'Driver Invoices' },
         { path: '/requirements', icon: ShoppingCart, label: 'Part Requirements' },
         { path: '/purchase-requests', icon: ShoppingCart, label: 'Purchase Requests' },
     ];

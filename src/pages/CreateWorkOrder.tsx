@@ -223,13 +223,43 @@ const CreateWorkOrder = () => {
                     </label>
                     {form.vehicleId && selectedVehicleData ? (
                         <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm">
-                            <div>
+                            <div className="flex-1">
                                 <p className="text-sm font-semibold">
                                     {selectedVehicleData.basicDetails?.make} {selectedVehicleData.basicDetails?.model} {selectedVehicleData.basicDetails?.year}
                                 </p>
-                                <p className="text-xs opacity-50 font-mono tracking-wider mt-0.5">
-                                    {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
-                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <p className="text-xs opacity-50 font-mono tracking-wider">
+                                        {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
+                                    </p>
+                                    {selectedVehicleData.status === 'ACTIVE — RENTED' && (
+                                        <span className="text-[10px] bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                                            Rented
+                                        </span>
+                                    )}
+                                </div>
+                                {selectedVehicleData.currentDriver ? (
+                                    <div className="mt-3 p-2 bg-white/5 rounded-lg border border-white/5 flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-full bg-[var(--brand-lime)] text-black flex items-center justify-center text-[10px] font-bold">
+                                            {selectedVehicleData.currentDriver.personalInfo?.fullName?.charAt(0) || '?'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[10px] opacity-40 uppercase font-bold tracking-widest leading-none mb-1">Assigned Driver</p>
+                                            <p className="text-xs font-bold leading-none truncate">
+                                                {selectedVehicleData.currentDriver.personalInfo?.fullName || 'N/A'} 
+                                                <span className="ml-2 opacity-40 font-mono text-[10px]">{selectedVehicleData.currentDriver.driverId}</span>
+                                            </p>
+                                            {selectedVehicleData.currentDriver.personalInfo?.phone && (
+                                                <p className="text-[10px] opacity-60 mt-1 font-mono">{selectedVehicleData.currentDriver.personalInfo.phone}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : selectedVehicleData.status === 'ACTIVE — RENTED' && (
+                                    <div className="mt-3 p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                                        <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider">
+                                            ⚠️ Rented vehicle - No driver linked
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                             <button
                                 type="button"
@@ -273,8 +303,26 @@ const CreateWorkOrder = () => {
                                                 onClick={() => handleVehicleSelect(v)}
                                             >
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold truncate leading-tight mb-0.5">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
+                                                    <div className="flex items-center gap-2 mb-0.5">
+                                                        <p className="text-sm font-semibold truncate leading-tight">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
+                                                        {v.status === 'ACTIVE — RENTED' && (
+                                                            <span className="text-[8px] bg-[var(--brand-lime)] text-black px-1 rounded font-bold uppercase">Rented</span>
+                                                        )}
+                                                    </div>
                                                     <p className="text-[10px] opacity-60 font-mono tracking-widest uppercase">{v.basicDetails?.vin || 'No VIN'}</p>
+                                                    {v.currentDriver ? (
+                                                        <div className="mt-1.5 flex flex-col gap-0.5">
+                                                            <p className="text-[10px] text-[var(--brand-lime)] font-bold flex items-center gap-1">
+                                                                <div className="w-1 h-1 rounded-full bg-current" />
+                                                                Driver: {v.currentDriver.personalInfo?.fullName || 'N/A'}
+                                                            </p>
+                                                            {v.currentDriver.personalInfo?.phone && (
+                                                                <p className="text-[9px] opacity-50 font-mono ml-2">{v.currentDriver.personalInfo.phone}</p>
+                                                            )}
+                                                        </div>
+                                                    ) : v.status === 'ACTIVE — RENTED' && (
+                                                        <p className="text-[9px] text-orange-400 font-bold uppercase mt-1">No driver linked</p>
+                                                    )}
                                                 </div>
                                             </button>
                                         ))

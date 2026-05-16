@@ -81,6 +81,7 @@ const WorkOrderDetail = () => {
 
     /* ── Service Bill ── */
     const [bill, setBill] = useState<any>(null);
+    const [isDriverBilled, setIsDriverBilled] = useState(false);
 
     const load = useCallback(async () => {
         if (!id) return;
@@ -182,7 +183,20 @@ const WorkOrderDetail = () => {
                         <h1 className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>{wo.workOrderNumber}</h1>
                         <span className={`badge ${getStatusBadge(wo.status)}`}>{fmtStatus(wo.status)}</span>
                     </div>
-                    <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{vehicleLabel()} • {wo.workOrderType.replace(/_/g, ' ')}</p>
+                    <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {vehicleLabel()} • {wo.workOrderType.replace(/_/g, ' ')}
+                        {(() => {
+                            const v = wo.vehicleId as any;
+                            if (v?.currentDriver) {
+                                return (
+                                    <span className="ml-2 px-2 py-0.5 bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] rounded-md text-[10px] font-bold uppercase tracking-wider">
+                                        Driver: {v.currentDriver.personalInfo?.fullName}
+                                    </span>
+                                );
+                            }
+                            return null;
+                        })()}
+                    </p>
                 </div>
             </div>
 
@@ -440,6 +454,18 @@ const WorkOrderDetail = () => {
                         <InfoRow label={t('dashboard.table.type')} value={t(`workOrders.types.${wo.workOrderType.toLowerCase()}`, { defaultValue: wo.workOrderType.replace(/_/g, ' ') })} />
                         <InfoRow label={t('dashboard.table.priority')} value={t(`workOrders.priorities.${wo.priority.toLowerCase()}`, { defaultValue: wo.priority })} />
                         <InfoRow label={t('workOrders.create.vehicle')} value={vehicleLabel()} />
+                        {(() => {
+                            const v = wo.vehicleId as any;
+                            if (v?.currentDriver) {
+                                return (
+                                    <InfoRow 
+                                        label="Assigned Driver" 
+                                        value={`${v.currentDriver.personalInfo?.fullName} (${v.currentDriver.driverId}) ${v.currentDriver.personalInfo?.phone || ''}`}
+                                    />
+                                );
+                            }
+                            return null;
+                        })()}
                         <InfoRow label={t('common.created')} value={fmtDate(wo.createdAt)} />
                         <InfoRow label={t('common.updated')} value={fmtDate(wo.updatedAt)} />
                     </div>
@@ -968,6 +994,19 @@ const WorkOrderDetail = () => {
                                             </div>
                                         </div>
 
+                                        <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)]">
+                                            <div>
+                                                <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
+                                                <p className="text-[10px] text-[var(--text-dim)] mt-0.5">Toggle if this bill is to be paid by the driver</p>
+                                            </div>
+                                            <button 
+                                                className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
+                                                onClick={() => setIsDriverBilled(!isDriverBilled)}
+                                            >
+                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isDriverBilled ? 'right-1' : 'left-1'}`} />
+                                            </button>
+                                        </div>
+
                                         <button 
                                             className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                                             disabled={actionLoading || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
@@ -976,7 +1015,8 @@ const WorkOrderDetail = () => {
                                                 const tax = (document.getElementById('taxRate') as HTMLInputElement)?.value;
                                                 doAction(() => generateBill(id!, { 
                                                     hourlyRate: Number(rate), 
-                                                    taxRate: Number(tax) 
+                                                    taxRate: Number(tax),
+                                                    isDriverBilled
                                                 }));
                                             }}
                                         >
@@ -998,11 +1038,21 @@ const WorkOrderDetail = () => {
                                                 <div>
                                                     <p className="text-[10px] font-bold text-[var(--brand-lime)] uppercase tracking-wider">Bill Generated</p>
                                                     <h4 className="text-xl font-bold text-[var(--text-main)] mt-1">Invoice Linked Successfully</h4>
+                                                    <p className="text-xs font-mono font-bold text-[var(--text-dim)] mt-2 bg-black/10 px-2 py-1 rounded-md inline-block">
+                                                        ID: {bill?.billNumber}
+                                                    </p>
                                                 </div>
                                                 <div className="w-12 h-12 rounded-xl bg-[var(--brand-lime-alpha)] flex items-center justify-center text-[var(--brand-lime)]">
                                                     <CheckCircle2 size={24} />
                                                 </div>
                                             </div>
+
+                                            {bill?.isDriverBilled && (
+                                                <div className="mb-4 px-3 py-1.5 rounded-lg bg-[var(--brand-lime)] text-[var(--brand-black)] text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-1.5">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                                                    Driver Billed
+                                                </div>
+                                            )}
 
                                             <div className="space-y-4 py-4 border-y border-[var(--border-main)]">
                                                 <div className="flex justify-between text-sm">

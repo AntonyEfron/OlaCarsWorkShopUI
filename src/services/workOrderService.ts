@@ -90,7 +90,25 @@ export interface WorkOrder {
     workOrderNumber: string;
     workOrderType: WorkOrderType;
     status: WorkOrderStatus;
-    vehicleId: string | Record<string, unknown>;
+    vehicleId: string | {
+        _id: string;
+        basicDetails: {
+            make: string;
+            model: string;
+            year: number;
+            vin: string;
+        };
+        status: string;
+        currentDriver?: {
+            _id: string;
+            personalInfo?: {
+                fullName: string;
+                phone?: string;
+                email?: string;
+            };
+            driverId: string;
+        };
+    };
     branchId: string | Record<string, unknown>;
     priority: Priority;
     slaDeadline?: string;
@@ -320,7 +338,16 @@ export const removePhoto = async (workOrderId: string, photoId: string): Promise
     return response.data.data || response.data;
 };
 
-export const generateBill = async (workOrderId: string, options?: { hourlyRate?: number; taxRate?: number; discount?: number; notes?: string }): Promise<any> => {
+export const generateBill = async (
+    workOrderId: string, 
+    options?: { 
+        hourlyRate?: number; 
+        taxRate?: number; 
+        discount?: number; 
+        notes?: string;
+        isDriverBilled?: boolean;
+    }
+): Promise<any> => {
     const response = await api.post(`/api/work-orders/${workOrderId}/billing/generate`, options);
     return response.data.data || response.data;
 };

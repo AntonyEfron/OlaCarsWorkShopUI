@@ -16,6 +16,7 @@ import Inventory from './pages/Inventory';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
 import ServiceBills from './pages/ServiceBills';
+import WorkshopInvoices from './pages/WorkshopInvoices';
 
 function App() {
     useEffect(() => {
@@ -68,6 +69,7 @@ function App() {
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
                             <Route path="/service-bills" element={<ServiceBills />} />
+                            <Route path="/workshop-invoices" element={<WorkshopInvoices />} />
                             <Route path="/profile" element={<Profile />} />
                         </Route>
                     </Route>

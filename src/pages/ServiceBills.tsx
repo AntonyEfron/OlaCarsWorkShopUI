@@ -30,6 +30,7 @@ const ServiceBills: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [billingTypeFilter, setBillingTypeFilter] = useState<'all' | 'driver' | 'workshop'>('all');
   
   const [selectedBill, setSelectedBill] = useState<ServiceBill | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -41,6 +42,8 @@ const ServiceBills: React.FC = () => {
   const [paymentRef, setPaymentRef] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const selectedAccountCode = '4010';
 
   useEffect(() => {
@@ -61,11 +64,20 @@ const ServiceBills: React.FC = () => {
 
   const handleApprove = async (id: string) => {
     try {
-      await approveBill(id);
-      toast.success('Bill approved successfully');
+      const updated = await approveBill(id);
+      if (updated.invoiceNumber) {
+        toast.success(
+          <div>
+            <p className="font-bold">Bill Approved Successfully</p>
+            <p className="text-[10px] opacity-80 mt-0.5">Invoice <span className="text-brand-lime">{updated.invoiceNumber}</span> Linked Successfully</p>
+          </div>,
+          { duration: 5000 }
+        );
+      } else {
+        toast.success('Bill approved successfully');
+      }
       loadBills();
       if (selectedBill?._id === id) {
-        const updated = await getBillById(id);
         setSelectedBill(updated);
       }
     } catch (error: any) {
@@ -107,11 +119,27 @@ const ServiceBills: React.FC = () => {
   };
 
   const filteredBills = bills.filter(bill => {
-    const matchesSearch = bill.billNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (bill.workOrderId?.workOrderNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch = !searchTerm || 
+                         bill.billNumber.toLowerCase().includes(searchLower) ||
+                         (bill.workOrderId?.workOrderNumber || '').toLowerCase().includes(searchLower);
+    
     const matchesStatus = statusFilter === 'all' || bill.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    
+    let matchesBillingType = true;
+    if (billingTypeFilter === 'driver') matchesBillingType = bill.isDriverBilled === true;
+    if (billingTypeFilter === 'workshop') matchesBillingType = !bill.isDriverBilled;
+
+    return matchesSearch && matchesStatus && matchesBillingType;
   });
+
+  const totalPages = Math.ceil(filteredBills.length / itemsPerPage);
+  const paginatedBills = filteredBills.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, billingTypeFilter]);
 
   return (
     <div className="p-6 space-y-6">
@@ -149,6 +177,19 @@ const ServiceBills: React.FC = () => {
           </select>
           <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 opacity-40 pointer-events-none" size={18} />
         </div>
+        <div className="relative">
+          <Receipt className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" size={18} />
+          <select
+            className="w-full pl-10 pr-4 py-2.5 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl focus:outline-none appearance-none"
+            value={billingTypeFilter}
+            onChange={(e) => setBillingTypeFilter(e.target.value as any)}
+          >
+            <option value="all">All Billing</option>
+            <option value="driver">Driver Billed</option>
+            <option value="workshop">Workshop Billed</option>
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 opacity-40 pointer-events-none" size={18} />
+        </div>
       </div>
 
       <div className="glass-card overflow-hidden">
@@ -160,6 +201,7 @@ const ServiceBills: React.FC = () => {
                 <th className="px-6 py-4 font-semibold">Status</th>
                 <th className="px-6 py-4 font-semibold text-right">Total Amount</th>
                 <th className="px-6 py-4 font-semibold text-right">Paid</th>
+                <th className="px-6 py-4 font-semibold text-right text-[var(--brand-lime)]">Balance</th>
                 <th className="px-6 py-4 font-semibold">Payment Status</th>
                 <th className="px-6 py-4 font-semibold text-center">Actions</th>
               </tr>
@@ -167,21 +209,26 @@ const ServiceBills: React.FC = () => {
             <tbody className="divide-y divide-[var(--border-main)]">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
+                  <td colSpan={7} className="px-6 py-12 text-center">
                     <Loader2 size={32} className="animate-spin mx-auto opacity-20" />
                   </td>
                 </tr>
               ) : filteredBills.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center opacity-40 text-sm">No bills found</td>
+                  <td colSpan={7} className="px-6 py-12 text-center opacity-40 text-sm">No bills found</td>
                 </tr>
-              ) : filteredBills.map((bill) => (
+              ) : paginatedBills.map((bill) => (
                 <tr key={bill._id} className="hover:bg-white/5 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="font-bold text-sm">{bill.billNumber}</div>
                     <div className="text-[10px] opacity-60 mt-1 flex items-center gap-1">
                       <FileText size={10} /> WO: {bill.workOrderId?.workOrderNumber || 'N/A'}
                     </div>
+                    {bill.isDriverBilled && (
+                      <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] text-[8px] font-bold uppercase tracking-wider">
+                        Driver Billed
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-${STATUS_COLORS[bill.status]}-500/10 text-${STATUS_COLORS[bill.status]}-500 border border-${STATUS_COLORS[bill.status]}-500/20`}>
@@ -193,6 +240,9 @@ const ServiceBills: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-right text-sm opacity-80">
                     ${(bill.amountPaid || 0).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-[var(--brand-lime)]">
+                    ${(bill.totalAmount - (bill.amountPaid || 0)).toLocaleString()}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
@@ -234,6 +284,42 @@ const ServiceBills: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="px-6 py-4 border-t border-[var(--border-main)] flex items-center justify-between bg-white/5">
+            <p className="text-xs text-[var(--text-muted)]">
+              Showing <span className="font-bold text-[var(--text-main)]">{((currentPage - 1) * itemsPerPage) + 1}</span> to <span className="font-bold text-[var(--text-main)]">{Math.min(currentPage * itemsPerPage, filteredBills.length)}</span> of <span className="font-bold text-[var(--text-main)]">{filteredBills.length}</span> bills
+            </p>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-main)] text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-all"
+              >
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {[...Array(totalPages)].map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentPage(i + 1)}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${currentPage === i + 1 ? 'bg-[var(--brand-lime)] text-black' : 'hover:bg-white/5 border border-transparent hover:border-[var(--border-main)] text-[var(--text-muted)]'}`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-main)] text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-all"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bill Detail Modal */}
@@ -311,10 +397,22 @@ const ServiceBills: React.FC = () => {
                           <td className="p-3 text-right text-green-400">-${selectedBill.discount.toLocaleString()}</td>
                         </tr>
                       )}
-                      <tr className="text-lg bg-[var(--brand-lime)] text-black">
+                      <tr className="text-lg bg-white/10">
                         <td colSpan={4} className="p-3 text-right">Total Amount</td>
                         <td className="p-3 text-right">${selectedBill.totalAmount.toLocaleString()}</td>
                       </tr>
+                      {selectedBill.amountPaid > 0 && (
+                        <tr className="text-green-400 bg-green-400/5">
+                          <td colSpan={4} className="p-3 text-right opacity-60 uppercase text-[10px] tracking-widest">Amount Paid</td>
+                          <td className="p-3 text-right">-${selectedBill.amountPaid.toLocaleString()}</td>
+                        </tr>
+                      )}
+                      {selectedBill.totalAmount - selectedBill.amountPaid > 0 && (
+                        <tr className="text-lg bg-[var(--brand-lime)] text-black">
+                          <td colSpan={4} className="p-3 text-right uppercase text-xs tracking-widest">Balance Due</td>
+                          <td className="p-3 text-right">${(selectedBill.totalAmount - selectedBill.amountPaid).toLocaleString()}</td>
+                        </tr>
+                      )}
                     </tfoot>
                   </table>
                 </div>
