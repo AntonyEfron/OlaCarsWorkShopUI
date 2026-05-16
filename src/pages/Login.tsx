@@ -24,10 +24,10 @@ const Login = () => {
 
         setIsLoading(true);
         try {
-            const data = loginRole === 'manager' 
+            const data = loginRole === 'manager'
                 ? await workshopManagerLogin({ email, password })
                 : await workshopStaffLogin({ email, password });
-            
+
             setToken(data.token);
             if (data.manager) {
                 setUser(data.manager);
@@ -99,33 +99,31 @@ const Login = () => {
 
                 {/* Login Card */}
                 <div className="glass-card p-8 backdrop-blur-2xl bg-[#00000044] rounded-2xl" style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                    
+
                     {/* Role Toggle */}
                     <div className="flex bg-[#00000066] p-1.5 rounded-xl mb-8 border border-white/5 relative">
                         {/* Animated pill background */}
-                        <div 
+                        <div
                             className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-in-out shadow-lg"
-                            style={{ 
+                            style={{
                                 left: loginRole === 'staff' ? '6px' : 'calc(50%)',
                                 background: loginRole === 'staff' ? 'var(--brand-lime)' : '#10b981'
                             }}
                         />
-                        
+
                         <button
                             type="button"
                             onClick={() => setLoginRole('staff')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
-                                loginRole === 'staff' ? 'text-black' : 'text-white/40 hover:text-white'
-                            }`}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${loginRole === 'staff' ? 'text-black' : 'text-white/40 hover:text-white'
+                                }`}
                         >
                             Staff
                         </button>
                         <button
                             type="button"
                             onClick={() => setLoginRole('manager')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
-                                loginRole === 'manager' ? 'text-white' : 'text-white/40 hover:text-white'
-                            }`}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${loginRole === 'manager' ? 'text-white' : 'text-white/40 hover:text-white'
+                                }`}
                         >
                             Manager
                         </button>
@@ -199,8 +197,8 @@ const Login = () => {
                 </div>
 
                 <p className="text-center text-xs mt-8 font-medium" style={{ color: 'rgba(255, 255, 255, 0.4)' }}>
-                    {t('common.logout').includes('Sesión') 
-                        ? 'Acceso exclusivo para personal del taller. Contacte a su supervisor.' 
+                    {t('common.logout').includes('Sesión')
+                        ? 'Acceso exclusivo para personal del taller. Contacte a su supervisor.'
                         : 'Workshop System access. Contact your management if you need help.'}
                 </p>
             </div>

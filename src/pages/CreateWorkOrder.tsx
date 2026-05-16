@@ -9,14 +9,14 @@ import {
 } from '../services/workOrderService';
 import { getVehicles, type Vehicle } from '../services/vehicleService';
 import { getParts, type InventoryPart } from '../services/inventoryService';
-import { getUser } from '../utils/auth';
+import { getUser, getBranchId } from '../utils/auth';
 import toast from 'react-hot-toast';
 
 const CreateWorkOrder = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const user = getUser();
-    const branchId = (user?.branchId as string) || (user?.branch as string) || '';
+    const branchId = getBranchId() || '';
 
     const WORK_ORDER_TYPES = [
         { value: 'PREVENTIVE', label: t('workOrders.types.preventive') },
@@ -37,7 +37,9 @@ const CreateWorkOrder = () => {
     ];
 
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-    const [loadingVehicles, setLoadingVehicles] = useState(true);
+    const [loadingVehicles, setLoadingVehicles] = useState(false);
+    const [vehicleSearchTerm, setVehicleSearchTerm] = useState('');
+    const [selectedVehicleData, setSelectedVehicleData] = useState<Vehicle | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
     /* ── Inventory Parts ── */
@@ -62,9 +64,29 @@ const CreateWorkOrder = () => {
     });
 
     useEffect(() => {
-        loadVehicles();
         if (branchId) loadInventory();
     }, [branchId]);
+
+    // Debounced backend vehicle search
+    useEffect(() => {
+        const handler = setTimeout(async () => {
+            if (vehicleSearchTerm.length > 1) {
+                setLoadingVehicles(true);
+                try {
+                    const data = await getVehicles(vehicleSearchTerm);
+                    setVehicles(Array.isArray(data) ? data : []);
+                } catch {
+                    // handled by interceptor
+                } finally {
+                    setLoadingVehicles(false);
+                }
+            } else {
+                setVehicles([]);
+            }
+        }, 500); // 500ms debounce
+
+        return () => clearTimeout(handler);
+    }, [vehicleSearchTerm]);
 
     // Auto-calculate estimate
     useEffect(() => {
@@ -76,21 +98,10 @@ const CreateWorkOrder = () => {
         }
     }, [form.estimatedLabourHours, selectedParts]);
 
-    const loadVehicles = async () => {
-        try {
-            const data = await getVehicles();
-            setVehicles(Array.isArray(data) ? data : []);
-        } catch {
-            // handled by interceptor
-        } finally {
-            setLoadingVehicles(false);
-        }
-    };
-
     const loadInventory = async () => {
         setLoadingParts(true);
         try {
-            const data = await getParts({ branchId, isActive: true });
+            const data = await getParts({ branchId });
             setInventoryParts(Array.isArray(data) ? data : []);
         } catch {
             // handled
@@ -101,6 +112,20 @@ const CreateWorkOrder = () => {
 
     const handleChange = (field: string, value: string) => {
         setForm((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const handleVehicleSelect = (v: Vehicle) => {
+        setSelectedVehicleData(v);
+        handleChange('vehicleId', v._id);
+        setVehicleSearchTerm('');
+        setVehicles([]);
+    };
+    
+    const handleVehicleClear = () => {
+        setSelectedVehicleData(null);
+        handleChange('vehicleId', '');
+        setVehicleSearchTerm('');
+        setVehicles([]);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -192,31 +217,71 @@ const CreateWorkOrder = () => {
                 </div>
 
                 {/* Vehicle Selection */}
-                <div>
+                <div className="relative">
                     <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
                         {t('workOrders.create.vehicle')} *
                     </label>
-                    {loadingVehicles ? (
-                        <div className="flex items-center gap-2 py-3">
-                            <Loader2 size={16} className="animate-spin" style={{ color: 'var(--brand-lime)' }} />
-                            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('common.loading')}</span>
+                    {form.vehicleId && selectedVehicleData ? (
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm">
+                            <div>
+                                <p className="text-sm font-semibold">
+                                    {selectedVehicleData.basicDetails?.make} {selectedVehicleData.basicDetails?.model} {selectedVehicleData.basicDetails?.year}
+                                </p>
+                                <p className="text-xs opacity-50 font-mono tracking-wider mt-0.5">
+                                    {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleVehicleClear}
+                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                            >
+                                <X size={14} />
+                            </button>
                         </div>
                     ) : (
-                        <select
-                            value={form.vehicleId}
-                            onChange={(e) => handleChange('vehicleId', e.target.value)}
-                            className="input-field"
-                            id="vehicle-select"
-                            required
-                        >
-                            <option value="">{t('workOrders.create.vehicle')}</option>
-                            {vehicles.map((v) => (
-                                <option key={v._id} value={v._id}>
-                                    {v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}
-                                    {v.basicDetails?.vin ? ` — ${v.basicDetails.vin}` : ''}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="relative">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="Search vehicle by VIN, make, or model..."
+                                    className="input-field pl-10"
+                                    value={vehicleSearchTerm}
+                                    onChange={(e) => setVehicleSearchTerm(e.target.value)}
+                                />
+                            </div>
+                            
+                            {vehicleSearchTerm.length > 1 && (
+                                <div className="absolute z-10 left-0 right-0 mt-1 glass-card shadow-xl max-h-60 overflow-y-auto border-[var(--border-main)] py-2">
+                                    {loadingVehicles ? (
+                                        <div className="p-8 text-center opacity-40">
+                                            <Loader2 size={24} className="animate-spin mx-auto mb-2" />
+                                            <p className="text-xs font-semibold">Searching vehicles...</p>
+                                        </div>
+                                    ) : vehicles.length === 0 ? (
+                                        <div className="p-8 text-center opacity-40">
+                                            <Search size={24} className="mx-auto mb-2" />
+                                            <p className="text-xs font-semibold">No vehicles found</p>
+                                        </div>
+                                    ) : (
+                                        vehicles.map(v => (
+                                            <button
+                                                key={v._id}
+                                                type="button"
+                                                className="w-full px-4 py-3 text-left hover:bg-[var(--brand-lime-alpha)] flex items-center justify-between group transition-colors border-b border-[var(--border-main)]/30 last:border-0"
+                                                onClick={() => handleVehicleSelect(v)}
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-semibold truncate leading-tight mb-0.5">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
+                                                    <p className="text-[10px] opacity-60 font-mono tracking-widest uppercase">{v.basicDetails?.vin || 'No VIN'}</p>
+                                                </div>
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
 

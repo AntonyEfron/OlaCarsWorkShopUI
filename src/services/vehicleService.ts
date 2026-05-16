@@ -23,8 +23,12 @@ export interface Vehicle {
     [key: string]: unknown;
 }
 
-export const getVehicles = async (): Promise<Vehicle[]> => {
+export const getVehicles = async (search?: string): Promise<Vehicle[]> => {
+    const params: any = {};
+    if (search) params.search = search;
+    
     const response = await api.get('/api/vehicle/', {
+        params,
         // @ts-ignore
         skipToast: true,
     });

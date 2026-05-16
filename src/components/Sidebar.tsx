@@ -35,6 +35,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         { path: '/work-orders/create', icon: PlusCircle, label: t('workOrders.list.new') },
         { path: '/inventory', icon: Package, label: 'Inventory' },
         { path: '/requirements', icon: ShoppingCart, label: 'Part Requirements' },
+        { path: '/purchase-requests', icon: ShoppingCart, label: 'Purchase Requests' },
     ];
 
     if (isManager) {

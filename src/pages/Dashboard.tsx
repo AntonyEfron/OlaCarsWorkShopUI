@@ -9,14 +9,33 @@ import {
     Wrench,
     ArrowRight,
     Loader2,
+    PackageMinus,
 } from 'lucide-react';
 import { getWorkOrders, type WorkOrder, type WorkOrderStatus } from '../services/workOrderService';
+import { getLowStock } from '../services/inventoryService';
+import { getWorkshopAnalytics, type WorkshopAnalyticsData } from '../services/dashboardService';
+import { getBranchId } from '../utils/auth';
+import {
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
+    BarChart, Bar, Legend, Cell, PieChart, Pie, LineChart, Line
+} from 'recharts';
 
 const Dashboard = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+    const [lowStockCount, setLowStockCount] = useState(0);
+    const [analytics, setAnalytics] = useState<WorkshopAnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
+    const branchId = getBranchId() || '';
+
+    // Date range for analytics
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        return d.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
     const STATUS_GROUPS: { label: string; statuses: WorkOrderStatus[]; color: string; icon: React.ElementType }[] = [
         {
@@ -46,15 +65,22 @@ const Dashboard = () => {
     ];
 
     useEffect(() => {
-        loadWorkOrders();
-    }, []);
+        loadData();
+    }, [branchId, startDate, endDate]);
 
-    const loadWorkOrders = async () => {
+    const loadData = async () => {
         try {
-            const data = await getWorkOrders();
-            setWorkOrders(Array.isArray(data) ? data : []);
-        } catch {
-            // handled by interceptor
+            const [woData, lowStockData, analyticsData] = await Promise.all([
+                getWorkOrders(),
+                getLowStock(branchId),
+                getWorkshopAnalytics(branchId, startDate, endDate)
+            ]);
+            setWorkOrders(Array.isArray(woData) ? woData : []);
+            setLowStockCount(Array.isArray(lowStockData) ? lowStockData.length : 0);
+            setAnalytics(analyticsData);
+            console.log('Dashboard Analytics Received:', analyticsData);
+        } catch (error) {
+            console.error('Dashboard Data Fetch Error:', error);
         } finally {
             setLoading(false);
         }
@@ -108,17 +134,44 @@ const Dashboard = () => {
     return (
         <div className="space-y-6 animate-fadeInUp">
             {/* Page Header */}
-            <div>
-                <h1 className="text-2xl font-bold" style={{ color: 'var(--text-main)' }}>
-                    {t('dashboard.title')}
-                </h1>
-                <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-                    {t('dashboard.subtitle')}
-                </p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold" style={{ color: 'var(--text-main)' }}>
+                        {t('dashboard.title')}
+                    </h1>
+                    <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {t('dashboard.subtitle')}
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <input 
+                        type="date" 
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg border text-sm"
+                        style={{ 
+                            backgroundColor: 'var(--bg-card)', 
+                            borderColor: 'var(--border-main)',
+                            color: 'var(--text-main)'
+                        }}
+                    />
+                    <span className="text-sm" style={{ color: 'var(--text-muted)' }}>to</span>
+                    <input 
+                        type="date" 
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg border text-sm"
+                        style={{ 
+                            backgroundColor: 'var(--bg-card)', 
+                            borderColor: 'var(--border-main)',
+                            color: 'var(--text-main)'
+                        }}
+                    />
+                </div>
             </div>
 
             {/* Stat Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 {STATUS_GROUPS.map((group) => {
                     const count = getCount(group.statuses);
                     return (
@@ -128,7 +181,7 @@ const Dashboard = () => {
                         >
                             <div className="flex items-center justify-between">
                                 <div
-                                    className="w-10 h-10 rounded-xl flex items-center justify-center"
+                                    className="w-5 h-5 rounded-xl flex items-center justify-center"
                                     style={{ background: group.color + '1A' }}
                                 >
                                     <group.icon size={20} style={{ color: group.color }} />
@@ -140,6 +193,104 @@ const Dashboard = () => {
                         </div>
                     );
                 })}
+
+                {/* Low Stock KPI */}
+                <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                    style={{ borderColor: '#EF444433' }}
+                    onClick={() => navigate('/requirements?tab=low_stock')}
+                >
+                    <div className="flex items-center justify-between">
+                        <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center"
+                            style={{ background: '#EF44441A' }}
+                        >
+                            <PackageMinus size={20} style={{ color: '#EF4444' }} />
+                        </div>
+                        <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                    </div>
+                    <div className="stat-value" style={{ color: '#EF4444' }}>{lowStockCount}</div>
+                    <div className="stat-label">Low Stock Parts</div>
+                </div>
+            </div>
+
+            {/* Analytics Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="glass-card lg:col-span-2 p-5 flex flex-col">
+                    <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-main)' }}>Work Orders Frequency & Completion</h2>
+                    <div className="w-full" style={{ minHeight: '400px' }}>
+                        {analytics?.workOrderTrends && analytics.workOrderTrends.some(d => d.created > 0 || d.completed > 0) ? (
+                            <ResponsiveContainer width="100%" height={400}>
+                                <LineChart data={analytics.workOrderTrends} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" />
+                                    <XAxis 
+                                        dataKey="date" 
+                                        stroke="#9CA3AF"
+                                        fontSize={12}
+                                        tickLine={true}
+                                        axisLine={true}
+                                    />
+                                    <YAxis 
+                                        stroke="#9CA3AF"
+                                        fontSize={12}
+                                        tickLine={true}
+                                        axisLine={true}
+                                    />
+                                    <RechartsTooltip 
+                                        contentStyle={{ backgroundColor: '#1C1C1C', borderColor: '#374151', borderRadius: '8px', fontSize: '12px', color: '#FFFFFF' }}
+                                        itemStyle={{ color: '#FFFFFF' }}
+                                    />
+                                    <Legend verticalAlign="top" height={36} iconType="circle" />
+                                    <Line type="monotone" name="Created" dataKey="created" stroke="#C8E600" strokeWidth={3} dot={{ r: 5, fill: '#C8E600' }} activeDot={{ r: 7 }} />
+                                    <Line type="monotone" name="Completed" dataKey="completed" stroke="#3498DB" strokeWidth={3} dot={{ r: 5, fill: '#3498DB' }} activeDot={{ r: 7 }} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-full w-full border border-dashed rounded-lg" style={{ borderColor: 'var(--border-main)' }}>
+                                <p className="text-sm flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                                    <AlertTriangle size={16} />
+                                    {t('dashboard.noData')}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="glass-card p-5 flex flex-col">
+                    <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-main)' }}>Stock Health</h2>
+                    <div className="w-full" style={{ minHeight: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {analytics?.stockHealth && analytics.stockHealth.length > 0 && analytics.stockHealth.some(s => s.value > 0) ? (
+                            <ResponsiveContainer width="100%" height={400}>
+                                <PieChart>
+                                    <Pie
+                                        data={analytics.stockHealth}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={100}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {analytics.stockHealth.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.name === 'Healthy' ? '#27AE60' : '#EF4444'} />
+                                        ))}
+                                    </Pie>
+                                    <RechartsTooltip 
+                                        contentStyle={{ backgroundColor: '#1C1C1C', borderColor: '#2A2A2A', borderRadius: '8px', fontSize: '12px', color: '#FFFFFF' }}
+                                        itemStyle={{ color: '#FFFFFF' }}
+                                    />
+                                    <Legend wrapperStyle={{ fontSize: '12px' }} iconType="circle" verticalAlign="bottom" />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-full w-full border border-dashed rounded-lg" style={{ borderColor: 'var(--border-main)' }}>
+                                <p className="text-sm flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                                    <AlertTriangle size={16} />
+                                    {t('dashboard.noData')}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
             {/* Recent Work Orders */}

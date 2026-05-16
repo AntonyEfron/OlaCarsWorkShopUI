@@ -76,6 +76,11 @@ export const createPart = async (payload: Partial<InventoryPart>): Promise<Inven
   return response.data.data || response.data;
 };
 
+export const bulkCreateParts = async (payload: { parts: Partial<InventoryPart>[] }): Promise<{ successCount: number, parts: any[], errorCount?: number, message?: string }> => {
+  const response = await api.post('/api/inventory/bulk', payload);
+  return response.data.data || response.data;
+};
+
 export const updatePart = async (id: string, payload: Partial<InventoryPart>): Promise<InventoryPart> => {
   const response = await api.put(`/api/inventory/${id}`, payload);
   return response.data.data || response.data;

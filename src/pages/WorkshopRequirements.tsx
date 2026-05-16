@@ -1,30 +1,35 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { 
-  ClipboardList, Package, Check, ArrowRight, Loader2, 
+import {
+  ClipboardList, Package, Check, ArrowRight, Loader2,
   Search, Filter, ExternalLink, AlertCircle, ShoppingCart, CheckCircle2, Shield
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { 
+import {
   getWorkshopRequirements, reserveStock, installPart, getLowStock, restockPart,
-  type WorkshopRequirement, type InventoryPart 
+  type WorkshopRequirement, type InventoryPart
 } from '../services/inventoryService';
-import { getUser, getUserRole } from '../utils/auth';
+import { createProcurementRequest } from '../services/workshopProcurementService';
+import { getUser, getUserRole, getBranchId } from '../utils/auth';
 import { getApprovalThreshold, updateApprovalThreshold } from '../services/workOrderService';
 
 const WorkshopRequirements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const user = getUser();
-  const branchId = (user?.branchId as string) || '';
+  const branchId = getBranchId() || '';
 
   const [requirements, setRequirements] = useState<WorkshopRequirement[]>([]);
   const [lowStockParts, setLowStockParts] = useState<InventoryPart[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'requirements' | 'low_stock' | 'settings'>('requirements');
+  const [activeTab, setActiveTab] = useState<'requirements' | 'low_stock' | 'settings'>((searchParams.get('tab') as any) || 'requirements');
+  const [showRestockModal, setShowRestockModal] = useState(false);
+  const [selectedRestockPart, setSelectedRestockPart] = useState<{ id: string, name: string, unit?: string } | null>(null);
+  const [restockQty, setRestockQty] = useState(10);
   const [threshold, setThreshold] = useState<number>(200);
   const [saveLoading, setSaveLoading] = useState(false);
   const isManager = getUserRole() === 'workshopmanager';
@@ -80,25 +85,33 @@ const WorkshopRequirements = () => {
     }
   };
 
-  const handleRestock = async (partId: string, partName: string) => {
-    const qtyStr = window.prompt(`Enter quantity to restock for ${partName}:`, '10');
-    if (!qtyStr) return;
-    const qty = parseInt(qtyStr, 10);
-    if (isNaN(qty) || qty <= 0) return toast.error('Invalid quantity');
+  const handleRestockClick = (partId: string, partName: string, unit?: string) => {
+    setSelectedRestockPart({ id: partId, name: partName, unit: unit || 'units' });
+    setRestockQty(10); // default qty
+    setShowRestockModal(true);
+  };
 
-    setActionLoading(`restock-${partId}`);
+  const confirmRestock = async () => {
+    if (!selectedRestockPart || restockQty <= 0) return toast.error('Invalid quantity');
+
+    setActionLoading(`restock-${selectedRestockPart.id}`);
     try {
-      await restockPart(partId, qty);
-      toast.success(`${qty} units of ${partName} restocked successfully!`);
-      loadRequirements();
+      await createProcurementRequest({
+        part: selectedRestockPart.id,
+        quantity: restockQty,
+        notes: `Restock request for ${selectedRestockPart.name} from Low Stock alert`
+      });
+      toast.success(`Purchase request for ${restockQty} units of ${selectedRestockPart.name} created successfully!`);
+      setShowRestockModal(false);
+      setSelectedRestockPart(null);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Restock failed');
+      toast.error(err.response?.data?.message || 'Failed to create purchase request');
     } finally {
       setActionLoading(null);
     }
   };
 
-  const filteredRequirements = requirements.filter(req => 
+  const filteredRequirements = requirements.filter(req =>
     req.workOrderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
     req.vehicleLabel.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -126,58 +139,59 @@ const WorkshopRequirements = () => {
 
       {/* Toolbar & Tabs */}
       <div className="glass-card p-4 flex flex-col gap-4">
-        
+
         {/* Tabs */}
         <div className="flex bg-[#00000066] p-1.5 rounded-xl border border-white/5 relative self-start mb-2">
-            <div 
-                className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-in-out shadow-lg"
-                style={{ 
-                    left: activeTab === 'requirements' ? '6px' : activeTab === 'low_stock' ? 'calc(33.33% + 2px)' : 'calc(66.66% + 2px)',
-                    width: isManager ? 'calc(33.33% - 4px)' : 'calc(50% - 6px)',
-                    background: 'var(--brand-lime)'
-                }}
-            />
-            <button
-                type="button"
-                onClick={() => setActiveTab('requirements')}
-                className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
-                    activeTab === 'requirements' ? 'text-black' : 'text-white/40 hover:text-white'
-                }`}
-            >
-                Work Orders
-            </button>
-            <button
-                type="button"
-                onClick={() => setActiveTab('low_stock')}
-                className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
-                    activeTab === 'low_stock' ? 'text-black' : 'text-white/40 hover:text-white'
-                }`}
-            >
-                Low Stock
-                {lowStockParts.length > 0 && (
-                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${activeTab === 'low_stock' ? 'bg-black text-[var(--brand-lime)]' : 'bg-red-500/20 text-red-400'}`}>
-                    {lowStockParts.length}
-                  </span>
-                )}
-            </button>
-            {isManager && (
-              <button
-                  type="button"
-                  onClick={() => setActiveTab('settings')}
-                  className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${
-                      activeTab === 'settings' ? 'text-black' : 'text-white/40 hover:text-white'
-                  }`}
-              >
-                  Settings
-              </button>
+          <div
+            className="absolute top-1.5 bottom-1.5 rounded-lg transition-all duration-300 ease-in-out shadow-lg"
+            style={{
+              left: activeTab === 'requirements' 
+                ? '6px' 
+                : activeTab === 'low_stock' 
+                  ? (isManager ? 'calc(33.33% + 2px)' : 'calc(50% + 3px)')
+                  : 'calc(66.66% + 2px)',
+              width: isManager ? 'calc(33.33% - 4px)' : 'calc(50% - 6px)',
+              background: 'var(--brand-lime)'
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setActiveTab('requirements')}
+            className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${activeTab === 'requirements' ? 'text-black' : 'text-white/40 hover:text-white'
+              }`}
+          >
+            Work Orders
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('low_stock')}
+            className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${activeTab === 'low_stock' ? 'text-black' : 'text-white/40 hover:text-white'
+              }`}
+          >
+            Low Stock
+            {lowStockParts.length > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${activeTab === 'low_stock' ? 'bg-black text-[var(--brand-lime)]' : 'bg-red-500/20 text-red-400'}`}>
+                {lowStockParts.length}
+              </span>
             )}
+          </button>
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className={`w-[160px] flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 relative z-10 ${activeTab === 'settings' ? 'text-black' : 'text-white/40 hover:text-white'
+                }`}
+            >
+              Settings
+            </button>
+          )}
         </div>
 
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder={activeTab === 'requirements' ? "Search by Work Order # or Vehicle..." : "Search by Part Name or Number..."}
               className="input-field pl-10"
               value={searchTerm}
@@ -215,7 +229,7 @@ const WorkshopRequirements = () => {
                       <p className="text-xs font-semibold uppercase">{req.status.replace(/_/g, ' ')}</p>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={() => navigate(`/work-orders/${req._id}`)}
                     className="p-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--brand-lime-alpha)] hover:text-[var(--brand-lime)] transition-all flex items-center gap-2 text-xs font-bold"
                   >
@@ -228,10 +242,9 @@ const WorkshopRequirements = () => {
                   {req.parts.map((part, idx) => (
                     <div key={`${req._id}-part-${idx}`} className="px-5 py-4 flex items-center justify-between group hover:bg-white/[0.01] transition-colors">
                       <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                          part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500' : 
-                          part.status === 'RESERVED' ? 'bg-blue-500/10 text-blue-500' : 'bg-orange-500/10 text-orange-500'
-                        }`}>
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500' :
+                            part.status === 'RESERVED' ? 'bg-blue-500/10 text-blue-500' : 'bg-orange-500/10 text-orange-500'
+                          }`}>
                           {part.status === 'INSTALLED' ? <Check size={20} /> : <Package size={20} />}
                         </div>
                         <div>
@@ -245,10 +258,9 @@ const WorkshopRequirements = () => {
 
                       <div className="flex items-center gap-3">
                         {/* Status Badge */}
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-widest ${
-                          part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500' : 
-                          part.status === 'RESERVED' ? 'bg-blue-500/10 text-blue-500' : 'bg-orange-500/10 text-orange-500'
-                        }`}>
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-widest ${part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500' :
+                            part.status === 'RESERVED' ? 'bg-blue-500/10 text-blue-500' : 'bg-orange-500/10 text-orange-500'
+                          }`}>
                           {part.status}
                         </span>
 
@@ -257,7 +269,7 @@ const WorkshopRequirements = () => {
                         {/* Actions */}
                         <div className="flex items-center gap-2">
                           {part.status === 'REQUESTED' && part.inventoryPartId && (
-                            <button 
+                            <button
                               className="btn-primary !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-2 bg-blue-600 hover:bg-blue-700 !border-blue-600"
                               onClick={() => handleReserve(part.inventoryPartId!, req._id, part.quantity)}
                               disabled={actionLoading === `${req._id}-${part.inventoryPartId}-reserve`}
@@ -268,7 +280,7 @@ const WorkshopRequirements = () => {
                           )}
 
                           {part.status === 'RESERVED' && part.inventoryPartId && (
-                            <button 
+                            <button
                               className="btn-primary !py-1.5 !px-3 !text-xs !rounded-lg flex items-center gap-2"
                               onClick={() => handleInstall(part.inventoryPartId!, req._id, part.quantity)}
                               disabled={actionLoading === `${req._id}-${part.inventoryPartId}-install`}
@@ -326,7 +338,7 @@ const WorkshopRequirements = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <p className="text-[10px] uppercase font-bold text-red-400 tracking-wider mb-1">Stock Level</p>
@@ -336,19 +348,17 @@ const WorkshopRequirements = () => {
                       </p>
                     </div>
 
-                    {isManager && (
-                      <>
-                        <div className="h-8 w-[1px] bg-white/10 mx-2" />
-                        <button 
-                          className="btn-primary !py-2 !px-4 !text-xs !rounded-lg flex items-center gap-2 bg-red-500/20 text-red-300 hover:bg-red-500 hover:text-white !border-transparent hover:shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-all"
-                          onClick={() => handleRestock(p._id, p.partName)}
-                          disabled={actionLoading === `restock-${p._id}`}
-                        >
-                          {actionLoading === `restock-${p._id}` ? <Loader2 size={14} className="animate-spin" /> : <ShoppingCart size={14} />}
-                          Restock Part
-                        </button>
-                      </>
-                    )}
+                    <>
+                      <div className="h-8 w-[1px] bg-white/10 mx-2" />
+                      <button
+                        className="btn-primary !py-2 !px-4 !text-xs !rounded-lg flex items-center gap-2 bg-red-500/20 text-red-300 hover:bg-red-500 hover:text-white !border-transparent hover:shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-all"
+                        onClick={() => handleRestockClick(p._id, p.partName, p.unit)}
+                        disabled={actionLoading === `restock-${p._id}`}
+                      >
+                        {actionLoading === `restock-${p._id}` ? <Loader2 size={14} className="animate-spin" /> : <ShoppingCart size={14} />}
+                        Create Request
+                      </button>
+                    </>
                   </div>
                 </div>
               ))}
@@ -377,8 +387,8 @@ const WorkshopRequirements = () => {
                     Work orders with an estimated total cost below this value will be automatically approved (transition directly to START).
                   </p>
                   <div className="relative group">
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       className="input-field pl-12 text-lg font-mono"
                       value={threshold}
                       onChange={(e) => setThreshold(Number(e.target.value))}
@@ -387,7 +397,7 @@ const WorkshopRequirements = () => {
                   </div>
                 </div>
 
-                <button 
+                <button
                   className="btn-primary w-full !py-4 shadow-[0_10px_20px_rgba(186,255,41,0.2)] hover:shadow-[0_15px_30px_rgba(186,255,41,0.3)]"
                   disabled={saveLoading}
                   onClick={async () => {
@@ -433,6 +443,51 @@ const WorkshopRequirements = () => {
           </div>
         )}
       </div>
+
+      {/* Restock/Purchase Request Modal */}
+      {showRestockModal && selectedRestockPart && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="glass-card w-full max-w-sm p-6 space-y-6 shadow-2xl text-center">
+            <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto">
+              <ShoppingCart size={32} className="text-blue-500" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Create Purchase Request</h2>
+              <p className="text-sm opacity-60 mt-1">{selectedRestockPart.name}</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5 text-left">
+                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity Requested ({selectedRestockPart.unit})</label>
+                <input
+                  type="number"
+                  min="1"
+                  className="input-field text-center text-lg font-bold"
+                  value={restockQty}
+                  onChange={(e) => setRestockQty(Number(e.target.value))}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  className="btn-secondary flex-1"
+                  onClick={() => setShowRestockModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary flex-1 bg-blue-600 hover:bg-blue-700 !border-blue-600"
+                  disabled={actionLoading === `restock-${selectedRestockPart.id}` || restockQty < 1}
+                  onClick={confirmRestock}
+                >
+                  {actionLoading === `restock-${selectedRestockPart.id}` ? <Loader2 size={18} className="animate-spin" /> : 'Send Request'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

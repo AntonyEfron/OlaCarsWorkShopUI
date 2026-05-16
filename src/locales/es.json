@@ -17,7 +17,8 @@
     },
     "dashboard": {
         "title": "Panel de Control",
-        "subtitle": "Descripción general de las órdenes de trabajo actuales y la actividad del taller",
+        "subtitle": "Resumen de las órdenes de trabajo actuales y la actividad del taller",
+        "noData": "No hay datos disponibles",
         "groups": {
             "active": "Trabajos Activos",
             "awaiting": "Esperando Acción",

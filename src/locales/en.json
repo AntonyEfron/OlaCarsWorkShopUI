@@ -35,6 +35,7 @@
     "dashboard": {
         "title": "Workshop Dashboard",
         "subtitle": "Overview of current work orders and workshop activity",
+        "noData": "No data available",
         "groups": {
             "active": "Active Jobs",
             "awaiting": "Awaiting Action",
