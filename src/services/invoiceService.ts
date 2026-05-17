@@ -1,5 +1,13 @@
 import api from './api';
 
+export interface InvoicePayment {
+    amount: number;
+    paidAt: string;
+    paymentMethod: string;
+    transactionId?: string;
+    note?: string;
+}
+
 export interface Invoice {
     _id: string;
     invoiceNumber: string;
@@ -16,6 +24,7 @@ export interface Invoice {
     balance: number;
     status: 'PENDING' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'CANCELLED';
     paidAt?: string;
+    payments?: InvoicePayment[];
     createdAt: string;
 }
 
