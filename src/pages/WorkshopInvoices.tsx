@@ -12,6 +12,8 @@ const STATUS_COLORS: Record<string, string> = {
   PARTIAL: 'blue',
   PAID: 'green',
   OVERDUE: 'red',
+
+  
   CANCELLED: 'gray'
 };
 
