@@ -602,7 +602,7 @@ const Inventory = () => {
 
       {/* Bulk Upload Modal */}
       {showBulkModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+        <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
           <div className="glass-card w-full max-w-2xl p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto relative border border-[var(--border-main)] rounded-[2.5rem]">
             
             {/* Background glowing effects */}
