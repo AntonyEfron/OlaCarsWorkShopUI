@@ -13,7 +13,7 @@ import {
 import { createProcurementRequest } from '../services/workshopProcurementService';
 import { getSuppliers, type Supplier } from '../services/supplierService';
 import { getUser, getUserRole, getBranchId } from '../utils/auth';
-import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 
 const CATEGORIES: PartCategory[] = [
   'Engine', 'Transmission', 'Brakes', 'Suspension', 'Electrical',
@@ -131,41 +131,82 @@ const Inventory = () => {
     }
   };
 
+  const downloadTemplate = () => {
+    try {
+      const sampleData = [
+        {
+          partName: 'Spark Plug Platinum',
+          partNumber: 'SP-1002-PT',
+          category: 'Electrical',
+          unit: 'piece',
+          unitCost: 12.99,
+          quantityOnHand: 50,
+          reorderLevel: 10,
+          description: 'High-performance platinum spark plug'
+        },
+        {
+          partName: 'Engine Oil 5W-30',
+          partNumber: 'EO-5W30-4L',
+          category: 'Fluids',
+          unit: 'litre',
+          unitCost: 35.50,
+          quantityOnHand: 20,
+          reorderLevel: 5,
+          description: 'Synthetic engine oil 4L container'
+        }
+      ];
+
+      const worksheet = XLSX.utils.json_to_sheet(sampleData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Parts Template');
+      XLSX.writeFile(workbook, 'parts_inventory_template.xlsx');
+      toast.success('Excel template downloaded!');
+    } catch (error) {
+      toast.error('Failed to download template');
+      console.error(error);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        const parsed = results.data as any[];
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const parsed = XLSX.utils.sheet_to_json(worksheet) as any[];
+
         const errors: string[] = [];
         const validParts = parsed.map((row, index) => {
           if (!row.partName || !row.partNumber) {
-            errors.push(`Row ${index + 1}: Missing required partName or partNumber`);
+            errors.push(`Row ${index + 2}: Missing required partName or partNumber`);
             return null;
           }
           return {
-            partName: row.partName,
-            partNumber: row.partNumber,
-            category: row.category || 'Other',
-            unit: row.unit || 'piece',
+            partName: String(row.partName),
+            partNumber: String(row.partNumber),
+            category: row.category ? String(row.category) : 'Other',
+            unit: row.unit ? String(row.unit) : 'piece',
             unitCost: Number(row.unitCost) || 0,
             quantityOnHand: Number(row.quantityOnHand) || 0,
             reorderLevel: Number(row.reorderLevel) || 5,
-            description: row.description || ''
+            description: row.description ? String(row.description) : ''
           };
         }).filter(p => p !== null);
 
         setBulkErrors(errors);
         setBulkData(validParts);
-      },
-      error: (error) => {
-        toast.error('Error parsing CSV file');
-        console.error('CSV Parsing Error:', error);
+        toast.success(`Successfully parsed ${validParts.length} parts from Excel file!`);
+      } catch (error) {
+        toast.error('Error parsing Excel file');
+        console.error('Excel Parsing Error:', error);
       }
-    });
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const handleBulkSubmit = async () => {
@@ -561,63 +602,104 @@ const Inventory = () => {
 
       {/* Bulk Upload Modal */}
       {showBulkModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-card w-full max-w-2xl p-6 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold">Bulk Upload Parts</h2>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+          <div className="glass-card w-full max-w-2xl p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto relative border border-[var(--border-main)] rounded-[2.5rem]">
+            
+            {/* Background glowing effects */}
+            <div className="absolute top-0 left-1/4 w-72 h-72 bg-[var(--brand-lime)]/5 rounded-full blur-[100px] pointer-events-none" />
+            <div className="absolute bottom-0 right-1/4 w-72 h-72 bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
+
+            <div className="flex items-center justify-between border-b border-[var(--border-main)] pb-4">
+              <div>
+                <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--text-main)' }}>
+                  <Package className="text-[var(--brand-lime)]" size={24} />
+                  Bulk Excel Upload
+                </h2>
+                <p className="text-xs text-[var(--text-muted)] mt-1">Upload parts in bulk using an Excel spreadsheet</p>
+              </div>
               <button
                 onClick={() => setShowBulkModal(false)}
-                className="p-2 hover:bg-[var(--bg-input)] rounded-full transition-colors"
+                className="p-3 hover:bg-[var(--bg-input)] rounded-2xl transition-all border border-[var(--border-main)]"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div className="p-4 border-2 border-dashed border-[var(--border-main)] rounded-xl text-center space-y-3">
-                <Upload size={32} className="mx-auto opacity-50" />
-                <div>
-                  <p className="font-bold">Select CSV File</p>
-                  <p className="text-xs opacity-60 mt-1">Required columns: partName, partNumber</p>
-                  <p className="text-xs opacity-60">Optional: category, unit, unitCost, quantityOnHand, reorderLevel, description</p>
+            <div className="space-y-6">
+              {/* Excel template downloader */}
+              <div className="p-5 bg-white/[0.01] border border-[var(--border-main)] rounded-3xl flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-bold flex items-center gap-1.5" style={{ color: 'var(--text-main)' }}>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                    Need an Excel Template?
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)]">Download our perfectly formatted sample sheet, populate it, and upload it here.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="btn-secondary !py-2.5 !px-4 !rounded-2xl flex items-center gap-2 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10"
+                >
+                  <ArrowUpRight size={16} /> Template
+                </button>
+              </div>
+
+              {/* Upload drag-n-drop or click box */}
+              <div className="p-8 border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)]/50 rounded-3xl text-center space-y-4 transition-all duration-300 bg-white/[0.005] group">
+                <div className="w-16 h-16 bg-[var(--brand-lime-alpha)] rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                  <Upload size={28} className="text-[var(--brand-lime)]" />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Choose Excel spreadsheet</p>
+                  <p className="text-xs text-[var(--text-muted)]">Supports .xlsx and .xls formats</p>
+                  <p className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider font-semibold pt-1">Required headers: partName, partNumber</p>
                 </div>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".xlsx, .xls"
                   onChange={handleFileUpload}
-                  className="mx-auto block text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[var(--brand-lime-alpha)] file:text-[var(--brand-lime)] hover:file:bg-[var(--brand-lime)] hover:file:text-black transition-colors"
+                  className="mx-auto block text-sm file:mr-4 file:py-2.5 file:px-5 file:rounded-2xl file:border-0 file:text-xs file:font-bold file:bg-[var(--brand-lime)] file:text-black hover:file:opacity-90 file:cursor-pointer transition-colors"
                 />
               </div>
 
+              {/* Error logs */}
               {bulkErrors.length > 0 && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg space-y-1">
-                  <p className="text-xs font-bold text-red-500 flex items-center gap-1"><AlertTriangle size={14}/> Validation Errors</p>
-                  <ul className="text-xs text-red-400 list-disc pl-4">
+                <div className="p-4 bg-red-500/5 border border-red-500/15 rounded-3xl space-y-2 animate-fadeInUp">
+                  <p className="text-xs font-bold text-red-500 flex items-center gap-1.5">
+                    <AlertTriangle size={16} /> Validation Issues Found ({bulkErrors.length})
+                  </p>
+                  <div className="max-h-36 overflow-y-auto text-xs text-red-400/80 list-disc pl-4 space-y-1 font-mono">
                     {bulkErrors.map((err, i) => <li key={i}>{err}</li>)}
-                  </ul>
+                  </div>
                 </div>
               )}
 
+              {/* Excel Preview Grid */}
               {bulkData.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-wider opacity-60">Preview ({bulkData.length} valid parts)</p>
-                  <div className="max-h-60 overflow-y-auto border border-[var(--border-main)] rounded-lg">
+                <div className="space-y-3 animate-fadeInUp">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase font-bold tracking-widest text-[var(--text-dim)]">Preview ({bulkData.length} valid parts)</p>
+                    <span className="text-[10px] bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] px-2 py-0.5 rounded font-bold">Ready</span>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto border border-[var(--border-main)] rounded-2xl overflow-hidden shadow-inner">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-[var(--bg-input)] sticky top-0">
+                      <thead className="bg-[var(--bg-input)] sticky top-0 border-b border-[var(--border-main)]">
                         <tr>
-                          <th className="p-2">Name</th>
-                          <th className="p-2">Number</th>
-                          <th className="p-2">Category</th>
-                          <th className="p-2">Qty</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Part Name</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Part Number</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Category</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60 text-right">Qty</th>
                         </tr>
                       </thead>
                       <tbody>
                         {bulkData.map((part, i) => (
-                          <tr key={i} className="border-t border-[var(--border-main)]">
-                            <td className="p-2 truncate max-w-[100px]">{part.partName}</td>
-                            <td className="p-2 font-mono">{part.partNumber}</td>
-                            <td className="p-2">{part.category}</td>
-                            <td className="p-2">{part.quantityOnHand}</td>
+                          <tr key={i} className="border-b border-[var(--border-main)] hover:bg-white/[0.01] transition-colors">
+                            <td className="p-3 truncate max-w-[150px] font-medium" style={{ color: 'var(--text-main)' }}>{part.partName}</td>
+                            <td className="p-3 font-mono opacity-80 uppercase">{part.partNumber}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 rounded bg-[var(--bg-input)] text-[10px] font-medium border border-[var(--border-main)]">{part.category}</span>
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-[var(--brand-lime)]">{part.quantityOnHand}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -626,19 +708,22 @@ const Inventory = () => {
                 </div>
               )}
 
-              <div className="flex gap-3 pt-4">
+              {/* Action Buttons */}
+              <div className="flex gap-4 pt-4 border-t border-[var(--border-main)]">
                 <button
-                  className="btn-secondary flex-1"
+                  type="button"
+                  className="btn-secondary flex-1 !rounded-2xl !py-3 font-bold"
                   onClick={() => setShowBulkModal(false)}
                 >
                   Cancel
                 </button>
                 <button
-                  className="btn-primary flex-1"
+                  type="button"
+                  className="btn-primary flex-1 !rounded-2xl !py-3 font-bold"
                   disabled={submitting || bulkData.length === 0}
                   onClick={handleBulkSubmit}
                 >
-                  {submitting ? <Loader2 size={18} className="animate-spin" /> : `Upload ${bulkData.length} Parts`}
+                  {submitting ? <Loader2 size={18} className="animate-spin mx-auto" /> : `Import ${bulkData.length} Parts`}
                 </button>
               </div>
             </div>
