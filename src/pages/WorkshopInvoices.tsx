@@ -280,28 +280,31 @@ const WorkshopInvoices: React.FC = () => {
                 <h3 className="text-xs font-bold uppercase tracking-widest opacity-60 flex items-center gap-2">
                   <DollarSign size={16} /> Payment History
                 </h3>
-                {selectedInvoice.payments && selectedInvoice.payments.length > 0 ? (
-                  <div className="space-y-2">
-                    {selectedInvoice.payments.map((p: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between p-4 bg-main/50 rounded-2xl border border-main">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
-                            <CheckCircle2 size={20} />
+                {(() => {
+                  const paymentsList = (selectedInvoice as any).payments;
+                  return paymentsList && paymentsList.length > 0 ? (
+                    <div className="space-y-2">
+                      {paymentsList.map((p: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between p-4 bg-main/50 rounded-2xl border border-main">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
+                              <CheckCircle2 size={20} />
+                            </div>
+                            <div>
+                              <p className="font-bold text-sm">${p.amount.toLocaleString()}</p>
+                              <p className="text-[10px] opacity-60">{p.paymentMethod} • {format(new Date(p.paidAt), 'PP')}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-bold text-sm">${p.amount.toLocaleString()}</p>
-                            <p className="text-[10px] opacity-60">{p.paymentMethod} • {format(new Date(p.paidAt), 'PP')}</p>
-                          </div>
+                          {p.note && <span className="text-[10px] opacity-40 italic">{p.note}</span>}
                         </div>
-                        {p.note && <span className="text-[10px] opacity-40 italic">{p.note}</span>}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-8 text-center bg-main/20 rounded-2xl border border-dashed border-main opacity-40 text-sm italic">
-                    No payments recorded yet
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center bg-main/20 rounded-2xl border border-dashed border-main opacity-40 text-sm italic">
+                      No payments recorded yet
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Action */}
