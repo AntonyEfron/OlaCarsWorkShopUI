@@ -46,7 +46,7 @@ const CreateWorkOrder = () => {
     const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
     const [loadingParts, setLoadingParts] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedParts, setSelectedParts] = useState<{ inventoryPartId: string, partName: string, quantity: number, unitCost: number }[]>([]);
+    const [selectedParts, setSelectedParts] = useState<{ inventoryPartId: string, partName: string, partNumber?: string, quantity: number, unitCost: number }[]>([]);
 
     const [form, setForm] = useState({
         workOrderType: '' as string,
@@ -157,6 +157,7 @@ const CreateWorkOrder = () => {
                 requiredParts: selectedParts.map(p => ({
                     inventoryPartId: p.inventoryPartId,
                     partName: p.partName,
+                    partNumber: p.partNumber,
                     quantity: p.quantity,
                     unitCost: p.unitCost
                 }))
@@ -488,6 +489,7 @@ const CreateWorkOrder = () => {
                                                         setSelectedParts(prev => [...prev, {
                                                             inventoryPartId: p._id,
                                                             partName: p.partName,
+                                                            partNumber: p.partNumber,
                                                             quantity: 1,
                                                             unitCost: p.unitCost
                                                         }]);
