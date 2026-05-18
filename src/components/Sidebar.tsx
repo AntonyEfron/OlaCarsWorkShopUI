@@ -13,7 +13,6 @@ import {
     ChevronRight,
     ChevronDown,
     Package,
-    ShoppingCart,
     Receipt,
     FileText,
 } from 'lucide-react';
