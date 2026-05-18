@@ -82,6 +82,8 @@ const WorkOrderDetail = () => {
     /* ── Service Bill ── */
     const [bill, setBill] = useState<any>(null);
     const [isDriverBilled, setIsDriverBilled] = useState(false);
+    const [hourlyRate, setHourlyRate] = useState(150);
+    const [taxRate, setTaxRate] = useState(5);
 
     const load = useCallback(async () => {
         if (!id) return;
@@ -986,7 +988,8 @@ const WorkOrderDetail = () => {
                                                 <input 
                                                     type="number" 
                                                     id="hourlyRate"
-                                                    defaultValue={150} 
+                                                    value={hourlyRate}
+                                                    onChange={(e) => setHourlyRate(Number(e.target.value))}
                                                     className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
                                                 />
                                             </div>
@@ -995,7 +998,8 @@ const WorkOrderDetail = () => {
                                                 <input 
                                                     type="number" 
                                                     id="taxRate"
-                                                    defaultValue={5} 
+                                                    value={taxRate}
+                                                    onChange={(e) => setTaxRate(Number(e.target.value))}
                                                     className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
                                                 />
                                             </div>
@@ -1022,22 +1026,50 @@ const WorkOrderDetail = () => {
                                             return null;
                                         })()}
 
-                                        <button 
-                                            className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                                            disabled={actionLoading || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
-                                            onClick={() => {
-                                                const rate = (document.getElementById('hourlyRate') as HTMLInputElement)?.value;
-                                                const tax = (document.getElementById('taxRate') as HTMLInputElement)?.value;
-                                                doAction(() => generateBill(id!, { 
-                                                    hourlyRate: Number(rate), 
-                                                    taxRate: Number(tax),
-                                                    isDriverBilled
-                                                }));
-                                            }}
-                                        >
-                                            {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
-                                            Generate Final Bill
-                                        </button>
+                                        {(() => {
+                                            const preBillValue = (wo.actualLabourHours || 0) * hourlyRate + (wo.actualPartsCost || 0);
+                                            return (
+                                                <>
+                                                    <div className="p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] space-y-2">
+                                                        <div className="flex justify-between text-xs text-[var(--text-muted)]">
+                                                            <span>Labour ({wo.actualLabourHours || 0} hrs @ {hourlyRate} AED/hr)</span>
+                                                            <span className="font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * hourlyRate} AED</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-xs text-[var(--text-muted)]">
+                                                            <span>Parts Cost</span>
+                                                            <span className="font-mono text-[var(--text-main)]">{wo.actualPartsCost || 0} AED</span>
+                                                        </div>
+                                                        <div className="h-px bg-[var(--border-main)] my-2" />
+                                                        <div className="flex justify-between text-sm font-bold">
+                                                            <span className="text-[var(--text-main)] uppercase">Estimated Bill Total</span>
+                                                            <span className="font-mono text-[var(--brand-lime)]">{preBillValue} AED</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <button 
+                                                        className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                                        disabled={actionLoading || preBillValue <= 0 || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
+                                                        onClick={() => {
+                                                            doAction(() => generateBill(id!, { 
+                                                                hourlyRate: Number(hourlyRate), 
+                                                                taxRate: Number(taxRate),
+                                                                isDriverBilled
+                                                            }));
+                                                        }}
+                                                    >
+                                                        {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
+                                                        Generate Final Bill
+                                                    </button>
+                                                    
+                                                    {preBillValue <= 0 && (
+                                                        <div className="flex items-center justify-center gap-2 text-red-500/80">
+                                                            <AlertTriangle size={14} />
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider">Bill value must be greater than 0 to generate a bill</span>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                         
                                         {!['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED'].includes(wo.status) && (
                                             <div className="flex items-center justify-center gap-2 text-red-500/80">
