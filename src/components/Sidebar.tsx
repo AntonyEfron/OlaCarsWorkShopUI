@@ -46,7 +46,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         baseNavItems.push({ path: '/manage-staff', icon: Users, label: t('manageStaff.title', 'Manage Staff') });
     }
 
-    baseNavItems.push({ path: '/profile', icon: User, label: t('common.profile') });
+    baseNavItems.push({ path: '/profile', icon: User, label: 'System Preferences' });
 
     const navItems = baseNavItems;
 

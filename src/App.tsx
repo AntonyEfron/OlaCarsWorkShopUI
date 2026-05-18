@@ -10,7 +10,7 @@ import Dashboard from './pages/Dashboard';
 import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
 import WorkOrderDetail from './pages/WorkOrderDetail';
-import Profile from './pages/Profile';
+import SystemPreferences from './pages/SystemPreferences';
 import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
 import WorkshopRequirements from './pages/WorkshopRequirements';
@@ -70,7 +70,7 @@ function App() {
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
                             <Route path="/service-bills" element={<ServiceBills />} />
                             <Route path="/workshop-invoices" element={<WorkshopInvoices />} />
-                            <Route path="/profile" element={<Profile />} />
+                            <Route path="/profile" element={<SystemPreferences />} />
                         </Route>
                     </Route>
 

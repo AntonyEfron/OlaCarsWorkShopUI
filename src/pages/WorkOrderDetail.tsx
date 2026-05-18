@@ -10,6 +10,7 @@ import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
+    getHourlyLabourRate,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
 } from '../services/workOrderService';
@@ -90,6 +91,13 @@ const WorkOrderDetail = () => {
         try {
             const data = await getWorkOrderById(id);
             setWo(data);
+
+            // Load custom hourly rate preference
+            try {
+                const rate = await getHourlyLabourRate();
+                setHourlyRate(rate);
+            } catch {}
+
             if (data.serviceBillId) {
                 const b = await getServiceBillById(data.serviceBillId);
                 setBill(b);

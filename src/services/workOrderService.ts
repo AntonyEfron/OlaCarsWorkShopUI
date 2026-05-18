@@ -393,3 +393,19 @@ export const getApprovalThreshold = async (): Promise<number> => {
 export const updateApprovalThreshold = async (value: number): Promise<void> => {
     await api.put('/api/system-settings/WORK_ORDER_APPROVAL_THRESHOLD', { value });
 };
+
+// ── System Settings (Hourly Labor Rate) ───────────────────
+
+export const getHourlyLabourRate = async (): Promise<number> => {
+    try {
+        const response = await api.get('/api/system-settings/hourlyLabourRate');
+        const val = response.data?.value ?? response.data?.data?.value ?? 150;
+        return typeof val === 'number' ? val : parseInt(val, 10) || 150;
+    } catch {
+        return 150; // default
+    }
+};
+
+export const updateHourlyLabourRate = async (value: number): Promise<void> => {
+    await api.put('/api/system-settings/hourlyLabourRate', { value });
+};

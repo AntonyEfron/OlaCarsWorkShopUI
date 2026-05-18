@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Loader2, PlusCircle, Camera, X, Search, Package, Trash2 } from 'lucide-react';
 import {
     createWorkOrder,
+    getHourlyLabourRate,
     type WorkOrderType,
     type Priority,
 } from '../services/workOrderService';
@@ -41,6 +42,7 @@ const CreateWorkOrder = () => {
     const [vehicleSearchTerm, setVehicleSearchTerm] = useState('');
     const [selectedVehicleData, setSelectedVehicleData] = useState<Vehicle | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [hourlyLabourRate, setHourlyLabourRate] = useState(150);
 
     /* ── Inventory Parts ── */
     const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
@@ -88,15 +90,24 @@ const CreateWorkOrder = () => {
         return () => clearTimeout(handler);
     }, [vehicleSearchTerm]);
 
+    // Load hourly rate setting on mount
+    useEffect(() => {
+        const loadRate = async () => {
+            const rate = await getHourlyLabourRate();
+            setHourlyLabourRate(rate);
+        };
+        loadRate();
+    }, []);
+
     // Auto-calculate estimate
     useEffect(() => {
         const hours = Number(form.estimatedLabourHours) || 0;
         const partsCost = selectedParts.reduce((sum, p) => sum + (p.quantity * p.unitCost), 0);
-        const calculated = (hours * 50) + partsCost;
+        const calculated = (hours * hourlyLabourRate) + partsCost;
         if (calculated > 0 || selectedParts.length > 0) {
             setForm(prev => ({ ...prev, estimatedTotalCost: calculated.toString() }));
         }
-    }, [form.estimatedLabourHours, selectedParts]);
+    }, [form.estimatedLabourHours, selectedParts, hourlyLabourRate]);
 
     const loadInventory = async () => {
         setLoadingParts(true);
@@ -410,28 +421,9 @@ const CreateWorkOrder = () => {
                             onChange={(e) => handleChange('estimatedTotalCost', e.target.value)}
                             placeholder="0.00"
                             className="input-field"
-                            style={{ 
-                                border: `1.5px solid ${Number(form.estimatedTotalCost) <= 200 ? 'var(--brand-lime)' : '#E67E22'}` 
-                            }}
                             min="0"
                             step="0.01"
                         />
-                        {/* Approval Indicator */}
-                        <div className="mt-2 flex items-center gap-1.5">
-                            {Number(form.estimatedTotalCost) > 0 && (
-                                Number(form.estimatedTotalCost) <= 200 ? (
-                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'rgba(200, 230, 0, 0.1)', color: 'var(--brand-lime)' }}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                                        Auto-Approved
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'rgba(230, 126, 34, 0.1)', color: '#E67E22' }}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
-                                        Requires Manager Approval
-                                    </div>
-                                )
-                            )}
-                        </div>
                     </div>
                 </div>
 
