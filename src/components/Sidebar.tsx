@@ -1,4 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     LayoutDashboard,
@@ -10,6 +11,7 @@ import {
     Users,
     ChevronLeft,
     ChevronRight,
+    ChevronDown,
     Package,
     ShoppingCart,
     Receipt,
@@ -22,24 +24,55 @@ interface SidebarProps {
     onToggle: () => void;
 }
 
+interface SubItem {
+    path: string;
+    label: string;
+}
+
+interface NavItem {
+    label: string;
+    icon: any;
+    path?: string;
+    subItems?: SubItem[];
+}
+
 const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const location = useLocation();
     const user = getUser();
     const displayName = (user?.fullName as string) || 'Workshop Staff';
 
     const role = getUserRole();
     const isManager = role === 'workshopmanager';
 
-    const baseNavItems = [
+    const baseNavItems: NavItem[] = [
         { path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
-        { path: '/work-orders', icon: ClipboardList, label: t('common.workOrders') },
-        { path: '/work-orders/create', icon: PlusCircle, label: t('workOrders.list.new') },
-        { path: '/inventory', icon: Package, label: 'Inventory' },
-        { path: '/service-bills', icon: Receipt, label: 'Service Bills' },
-        { path: '/workshop-invoices', icon: FileText, label: 'Driver Invoices' },
-        { path: '/requirements', icon: ShoppingCart, label: 'Part Requirements' },
-        { path: '/purchase-requests', icon: ShoppingCart, label: 'Purchase Requests' },
+        {
+            label: t('common.workOrders'),
+            icon: ClipboardList,
+            subItems: [
+                { path: '/work-orders', label: 'All Work Orders' },
+                { path: '/work-orders/create', label: t('workOrders.list.new') },
+            ],
+        },
+        {
+            label: 'Inventory',
+            icon: Package,
+            subItems: [
+                { path: '/inventory', label: 'Inventory Stock' },
+                { path: '/requirements', label: 'Part Requirements' },
+                { path: '/purchase-requests', label: 'Purchase Requests' },
+            ],
+        },
+        {
+            label: 'Bills & Invoices',
+            icon: Receipt,
+            subItems: [
+                { path: '/service-bills', label: 'Service Bills' },
+                { path: '/workshop-invoices', label: 'Driver Invoices' },
+            ],
+        },
     ];
 
     if (isManager) {
@@ -48,7 +81,43 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
 
     baseNavItems.push({ path: '/profile', icon: User, label: 'System Preferences' });
 
-    const navItems = baseNavItems;
+    // Determine if a parent is currently active based on current pathname
+    const isParentActive = (item: NavItem) => {
+        if (item.path) {
+            return location.pathname === item.path;
+        }
+        if (item.subItems) {
+            return item.subItems.some(sub => location.pathname === sub.path);
+        }
+        return false;
+    };
+
+    // State to track which submenus are expanded
+    const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(() => {
+        const initial: Record<string, boolean> = {};
+        baseNavItems.forEach(item => {
+            if (item.subItems && item.subItems.some(sub => location.pathname === sub.path)) {
+                initial[item.label] = true;
+            }
+        });
+        return initial;
+    });
+
+    // Auto-expand menu when pathname changes
+    useEffect(() => {
+        baseNavItems.forEach(item => {
+            if (item.subItems && item.subItems.some(sub => location.pathname === sub.path)) {
+                setExpandedMenus(prev => ({ ...prev, [item.label]: true }));
+            }
+        });
+    }, [location.pathname]);
+
+    const toggleMenu = (menuLabel: string) => {
+        setExpandedMenus(prev => ({
+            ...prev,
+            [menuLabel]: !prev[menuLabel]
+        }));
+    };
 
     const handleLogout = () => {
         logout();
@@ -98,28 +167,79 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
 
             {/* Navigation */}
             <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-                {navItems.map((item) => (
-                    <NavLink
-                        key={item.path}
-                        to={item.path}
-                        end={item.path === '/dashboard'}
-                        className={({ isActive }) =>
-                            `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                                isActive
-                                    ? 'text-brand-black'
-                                    : ''
-                            }`
-                        }
-                        style={({ isActive }) => ({
-                            background: isActive ? 'var(--brand-lime)' : 'transparent',
-                            color: isActive ? '#0A0A0A' : 'var(--sidebar-text)',
-                            minHeight: '44px',
-                        })}
-                    >
-                        <item.icon size={20} className="flex-shrink-0" />
-                        {!isCollapsed && <span className="truncate">{item.label}</span>}
-                    </NavLink>
-                ))}
+                {baseNavItems.map((item) => {
+                    const hasSubItems = !!item.subItems && item.subItems.length > 0;
+                    const isExpanded = !!expandedMenus[item.label];
+                    const isActive = isParentActive(item);
+
+                    if (!hasSubItems) {
+                        // Single link rendering
+                        return (
+                            <NavLink
+                                key={item.path}
+                                to={item.path!}
+                                end={item.path === '/dashboard'}
+                                className={({ isActive }) =>
+                                    `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                        isActive ? 'text-brand-black' : ''
+                                    }`
+                                }
+                                style={({ isActive }) => ({
+                                    background: isActive ? 'var(--brand-lime)' : 'transparent',
+                                    color: isActive ? '#0A0A0A' : 'var(--sidebar-text)',
+                                    minHeight: '44px',
+                                })}
+                            >
+                                <item.icon size={20} className="flex-shrink-0" />
+                                {!isCollapsed && <span className="truncate">{item.label}</span>}
+                            </NavLink>
+                        );
+                    }
+
+                    // Multi-link accordion rendering
+                    return (
+                        <div key={item.label} className="space-y-1">
+                            <button
+                                onClick={() => toggleMenu(item.label)}
+                                className={`flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+                                    isActive && !isExpanded ? 'bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)]' : 'text-[var(--sidebar-text)] hover:bg-white/5'
+                                }`}
+                                style={{ minHeight: '44px', border: 'none', background: 'transparent' }}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <item.icon size={20} className="flex-shrink-0" />
+                                    {!isCollapsed && <span className="truncate">{item.label}</span>}
+                                </div>
+                                {!isCollapsed && (
+                                    <div className="text-[var(--text-muted)]">
+                                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </div>
+                                )}
+                            </button>
+
+                            {/* Sub items list with line connector */}
+                            {isExpanded && !isCollapsed && (
+                                <div className="ml-5 pl-3 border-l border-[var(--border-main)]/40 space-y-1 py-1 animate-fadeIn">
+                                    {item.subItems!.map((sub) => (
+                                        <NavLink
+                                            key={sub.path}
+                                            to={sub.path}
+                                            className={({ isActive }) =>
+                                                `flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                                    isActive
+                                                        ? 'text-[var(--brand-lime)] bg-white/5'
+                                                        : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+                                                }`
+                                            }
+                                        >
+                                            <span className="truncate">{sub.label}</span>
+                                        </NavLink>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
             </nav>
 
             {/* Logout */}
