@@ -93,6 +93,13 @@ const WorkOrderDetail = () => {
                 setBill(b);
             } else {
                 setBill(null);
+                // Default isDriverBilled to true if vehicle has current driver assigned
+                const v = data.vehicleId as any;
+                if (v && v.currentDriver) {
+                    setIsDriverBilled(true);
+                } else {
+                    setIsDriverBilled(false);
+                }
             }
         } catch { /* interceptor */ } finally { setLoading(false); }
     }, [id]);
@@ -994,18 +1001,26 @@ const WorkOrderDetail = () => {
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)]">
-                                            <div>
-                                                <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
-                                                <p className="text-[10px] text-[var(--text-dim)] mt-0.5">Toggle if this bill is to be paid by the driver</p>
-                                            </div>
-                                            <button 
-                                                className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
-                                                onClick={() => setIsDriverBilled(!isDriverBilled)}
-                                            >
-                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isDriverBilled ? 'right-1' : 'left-1'}`} />
-                                            </button>
-                                        </div>
+                                        {(() => {
+                                            const v = wo.vehicleId as any;
+                                            if (v && v.currentDriver) {
+                                                return (
+                                                    <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)]">
+                                                        <div>
+                                                            <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
+                                                            <p className="text-[10px] text-[var(--text-dim)] mt-0.5">Toggle if this bill is to be paid by the driver</p>
+                                                        </div>
+                                                        <button 
+                                                            className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
+                                                            onClick={() => setIsDriverBilled(!isDriverBilled)}
+                                                        >
+                                                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isDriverBilled ? 'right-1' : 'left-1'}`} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
 
                                         <button 
                                             className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"

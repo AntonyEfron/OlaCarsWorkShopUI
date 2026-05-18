@@ -43,7 +43,7 @@ const Inventory = () => {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showRestockModal, setShowRestockModal] = useState(false);
   const [selectedPart, setSelectedPart] = useState<InventoryPart | null>(null);
-  
+
   // Bulk Upload State
   const [bulkData, setBulkData] = useState<any[]>([]);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
@@ -217,9 +217,9 @@ const Inventory = () => {
     try {
       const response = await bulkCreateParts({ parts: bulkData.map(p => ({ ...p, branchId })) });
       if (response.errorCount && response.errorCount > 0) {
-         toast.error(`Partially successful. Added ${response.successCount}. Failed: ${response.errorCount}. ${response.message}`, { duration: 5000 });
+        toast.error(`Partially successful. Added ${response.successCount}. Failed: ${response.errorCount}. ${response.message}`, { duration: 5000 });
       } else {
-         toast.success(`Successfully added ${response.successCount} parts!`);
+        toast.success(`Successfully added ${response.successCount} parts!`);
       }
       setShowBulkModal(false);
       setBulkData([]);
@@ -593,7 +593,7 @@ const Inventory = () => {
                   disabled={submitting}
                 >
                   {submitting ? <Loader2 size={18} className="animate-spin" /> : (selectedPart ? 'Update Part' : 'Add to Inventory')}
-                  </button>
+                </button>
               </div>
             </form>
           </div>
@@ -602,9 +602,9 @@ const Inventory = () => {
 
       {/* Bulk Upload Modal */}
       {showBulkModal && (
-        <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
           <div className="glass-card w-full max-w-2xl p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto relative border border-[var(--border-main)] rounded-[2.5rem]">
-            
+
             {/* Background glowing effects */}
             <div className="absolute top-0 left-1/4 w-72 h-72 bg-[var(--brand-lime)]/5 rounded-full blur-[100px] pointer-events-none" />
             <div className="absolute bottom-0 right-1/4 w-72 h-72 bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
