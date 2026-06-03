@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Loader2, PlusCircle, Camera, X, Search, Package, Trash2 } from 'lucide-react';
 import {
     createWorkOrder,
+    getHourlyLabourRate,
     type WorkOrderType,
     type Priority,
 } from '../services/workOrderService';
@@ -41,12 +42,13 @@ const CreateWorkOrder = () => {
     const [vehicleSearchTerm, setVehicleSearchTerm] = useState('');
     const [selectedVehicleData, setSelectedVehicleData] = useState<Vehicle | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [hourlyLabourRate, setHourlyLabourRate] = useState(150);
 
     /* ── Inventory Parts ── */
     const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
     const [loadingParts, setLoadingParts] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedParts, setSelectedParts] = useState<{ inventoryPartId: string, partName: string, quantity: number, unitCost: number }[]>([]);
+    const [selectedParts, setSelectedParts] = useState<{ inventoryPartId: string, partName: string, partNumber?: string, quantity: number, unitCost: number }[]>([]);
 
     const [form, setForm] = useState({
         workOrderType: '' as string,
@@ -88,15 +90,24 @@ const CreateWorkOrder = () => {
         return () => clearTimeout(handler);
     }, [vehicleSearchTerm]);
 
+    // Load hourly rate setting on mount
+    useEffect(() => {
+        const loadRate = async () => {
+            const rate = await getHourlyLabourRate();
+            setHourlyLabourRate(rate);
+        };
+        loadRate();
+    }, []);
+
     // Auto-calculate estimate
     useEffect(() => {
         const hours = Number(form.estimatedLabourHours) || 0;
         const partsCost = selectedParts.reduce((sum, p) => sum + (p.quantity * p.unitCost), 0);
-        const calculated = (hours * 50) + partsCost;
+        const calculated = (hours * hourlyLabourRate) + partsCost;
         if (calculated > 0 || selectedParts.length > 0) {
             setForm(prev => ({ ...prev, estimatedTotalCost: calculated.toString() }));
         }
-    }, [form.estimatedLabourHours, selectedParts]);
+    }, [form.estimatedLabourHours, selectedParts, hourlyLabourRate]);
 
     const loadInventory = async () => {
         setLoadingParts(true);
@@ -157,6 +168,7 @@ const CreateWorkOrder = () => {
                 requiredParts: selectedParts.map(p => ({
                     inventoryPartId: p.inventoryPartId,
                     partName: p.partName,
+                    partNumber: p.partNumber,
                     quantity: p.quantity,
                     unitCost: p.unitCost
                 }))
@@ -223,13 +235,43 @@ const CreateWorkOrder = () => {
                     </label>
                     {form.vehicleId && selectedVehicleData ? (
                         <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm">
-                            <div>
+                            <div className="flex-1">
                                 <p className="text-sm font-semibold">
                                     {selectedVehicleData.basicDetails?.make} {selectedVehicleData.basicDetails?.model} {selectedVehicleData.basicDetails?.year}
                                 </p>
-                                <p className="text-xs opacity-50 font-mono tracking-wider mt-0.5">
-                                    {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
-                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <p className="text-xs opacity-50 font-mono tracking-wider">
+                                        {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
+                                    </p>
+                                    {selectedVehicleData.status === 'ACTIVE — RENTED' && (
+                                        <span className="text-[10px] bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                                            Rented
+                                        </span>
+                                    )}
+                                </div>
+                                {selectedVehicleData.currentDriver ? (
+                                    <div className="mt-3 p-2 bg-white/5 rounded-lg border border-white/5 flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-full bg-[var(--brand-lime)] text-black flex items-center justify-center text-[10px] font-bold">
+                                            {selectedVehicleData.currentDriver.personalInfo?.fullName?.charAt(0) || '?'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[10px] opacity-40 uppercase font-bold tracking-widest leading-none mb-1">Assigned Driver</p>
+                                            <p className="text-xs font-bold leading-none truncate">
+                                                {selectedVehicleData.currentDriver.personalInfo?.fullName || 'N/A'} 
+                                                <span className="ml-2 opacity-40 font-mono text-[10px]">{selectedVehicleData.currentDriver.driverId}</span>
+                                            </p>
+                                            {selectedVehicleData.currentDriver.personalInfo?.phone && (
+                                                <p className="text-[10px] opacity-60 mt-1 font-mono">{selectedVehicleData.currentDriver.personalInfo.phone}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : selectedVehicleData.status === 'ACTIVE — RENTED' && (
+                                    <div className="mt-3 p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                                        <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider">
+                                            ⚠️ Rented vehicle - No driver linked
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                             <button
                                 type="button"
@@ -273,8 +315,26 @@ const CreateWorkOrder = () => {
                                                 onClick={() => handleVehicleSelect(v)}
                                             >
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold truncate leading-tight mb-0.5">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
+                                                    <div className="flex items-center gap-2 mb-0.5">
+                                                        <p className="text-sm font-semibold truncate leading-tight">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
+                                                        {v.status === 'ACTIVE — RENTED' && (
+                                                            <span className="text-[8px] bg-[var(--brand-lime)] text-black px-1 rounded font-bold uppercase">Rented</span>
+                                                        )}
+                                                    </div>
                                                     <p className="text-[10px] opacity-60 font-mono tracking-widest uppercase">{v.basicDetails?.vin || 'No VIN'}</p>
+                                                    {v.currentDriver ? (
+                                                        <div className="mt-1.5 flex flex-col gap-0.5">
+                                                            <p className="text-[10px] text-[var(--brand-lime)] font-bold flex items-center gap-1">
+                                                                <div className="w-1 h-1 rounded-full bg-current" />
+                                                                Driver: {v.currentDriver.personalInfo?.fullName || 'N/A'}
+                                                            </p>
+                                                            {v.currentDriver.personalInfo?.phone && (
+                                                                <p className="text-[9px] opacity-50 font-mono ml-2">{v.currentDriver.personalInfo.phone}</p>
+                                                            )}
+                                                        </div>
+                                                    ) : v.status === 'ACTIVE — RENTED' && (
+                                                        <p className="text-[9px] text-orange-400 font-bold uppercase mt-1">No driver linked</p>
+                                                    )}
                                                 </div>
                                             </button>
                                         ))
@@ -361,28 +421,9 @@ const CreateWorkOrder = () => {
                             onChange={(e) => handleChange('estimatedTotalCost', e.target.value)}
                             placeholder="0.00"
                             className="input-field"
-                            style={{ 
-                                border: `1.5px solid ${Number(form.estimatedTotalCost) <= 200 ? 'var(--brand-lime)' : '#E67E22'}` 
-                            }}
                             min="0"
                             step="0.01"
                         />
-                        {/* Approval Indicator */}
-                        <div className="mt-2 flex items-center gap-1.5">
-                            {Number(form.estimatedTotalCost) > 0 && (
-                                Number(form.estimatedTotalCost) <= 200 ? (
-                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'rgba(200, 230, 0, 0.1)', color: 'var(--brand-lime)' }}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                                        Auto-Approved
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ background: 'rgba(230, 126, 34, 0.1)', color: '#E67E22' }}>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
-                                        Requires Manager Approval
-                                    </div>
-                                )
-                            )}
-                        </div>
                     </div>
                 </div>
 
@@ -440,6 +481,7 @@ const CreateWorkOrder = () => {
                                                         setSelectedParts(prev => [...prev, {
                                                             inventoryPartId: p._id,
                                                             partName: p.partName,
+                                                            partNumber: p.partNumber,
                                                             quantity: 1,
                                                             unitCost: p.unitCost
                                                         }]);

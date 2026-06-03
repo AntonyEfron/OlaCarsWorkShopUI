@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
+<<<<<<< HEAD
 import { useNavigate, useLocation } from 'react-router-dom';
+=======
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
 import { useTranslation } from 'react-i18next';
 import {
     LayoutDashboard,
@@ -13,6 +17,13 @@ import {
     LogOut,
     ChevronLeft,
     ChevronRight,
+<<<<<<< HEAD
+=======
+    ChevronDown,
+    Package,
+    Receipt,
+    FileText,
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
 } from 'lucide-react';
 import { logout, getUser, getUserRole } from '../utils/auth';
 
@@ -22,6 +33,7 @@ interface SidebarProps {
 }
 
 interface SubItem {
+<<<<<<< HEAD
     label: string;
     path: string;
 }
@@ -30,6 +42,15 @@ interface MenuItem {
     id: string;
     label: string;
     icon: React.ReactNode;
+=======
+    path: string;
+    label: string;
+}
+
+interface NavItem {
+    label: string;
+    icon: any;
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
     path?: string;
     subItems?: SubItem[];
 }
@@ -38,14 +59,18 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const location = useLocation();
+<<<<<<< HEAD
     const [openSection, setOpenSection] = useState<string | null>(null);
 
+=======
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
     const user = getUser();
     const displayName = (user?.fullName as string) || 'Workshop Staff';
     const role = getUserRole();
     const isManager = role === 'workshopmanager';
     const displayRole = isManager ? 'Workshop Manager' : 'Technician';
 
+<<<<<<< HEAD
     const menuItems: MenuItem[] = [
         {
             id: 'dashboard',
@@ -91,6 +116,33 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
             icon: <Trash2 size={22} />,
             subItems: [
                 { label: 'Scrap List', path: '/scrap-list' },
+=======
+    const baseNavItems: NavItem[] = [
+        { path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
+        {
+            label: t('common.workOrders'),
+            icon: ClipboardList,
+            subItems: [
+                { path: '/work-orders', label: 'All Work Orders' },
+                { path: '/work-orders/create', label: t('workOrders.list.new') },
+            ],
+        },
+        {
+            label: 'Inventory',
+            icon: Package,
+            subItems: [
+                { path: '/inventory', label: 'Inventory Stock' },
+                { path: '/requirements', label: 'Part Requirements' },
+                { path: '/purchase-requests', label: 'Purchase Requests' },
+            ],
+        },
+        {
+            label: 'Bills & Invoices',
+            icon: Receipt,
+            subItems: [
+                { path: '/service-bills', label: 'Service Bills' },
+                { path: '/workshop-invoices', label: 'Driver Invoices' },
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
             ],
         },
     ];
@@ -103,6 +155,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         return location.pathname.startsWith(path);
     };
 
+<<<<<<< HEAD
     const isSectionActive = (item: MenuItem) => {
         if (item.path) return isActive(item.path);
         if (item.subItems) {
@@ -126,6 +179,46 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
 
     const handleNavigation = (path: string) => {
         navigate(path);
+=======
+    baseNavItems.push({ path: '/profile', icon: User, label: 'System Preferences' });
+
+    // Determine if a parent is currently active based on current pathname
+    const isParentActive = (item: NavItem) => {
+        if (item.path) {
+            return location.pathname === item.path;
+        }
+        if (item.subItems) {
+            return item.subItems.some(sub => location.pathname === sub.path);
+        }
+        return false;
+    };
+
+    // State to track which submenus are expanded
+    const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(() => {
+        const initial: Record<string, boolean> = {};
+        baseNavItems.forEach(item => {
+            if (item.subItems && item.subItems.some(sub => location.pathname === sub.path)) {
+                initial[item.label] = true;
+            }
+        });
+        return initial;
+    });
+
+    // Auto-expand menu when pathname changes
+    useEffect(() => {
+        baseNavItems.forEach(item => {
+            if (item.subItems && item.subItems.some(sub => location.pathname === sub.path)) {
+                setExpandedMenus(prev => ({ ...prev, [item.label]: true }));
+            }
+        });
+    }, [location.pathname]);
+
+    const toggleMenu = (menuLabel: string) => {
+        setExpandedMenus(prev => ({
+            ...prev,
+            [menuLabel]: !prev[menuLabel]
+        }));
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
     };
 
     const handleLogout = () => {
@@ -240,6 +333,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                 </div>
             </div>
 
+<<<<<<< HEAD
             {/* User Profile Section */}
             <div className="mt-auto border-t border-[var(--border-main)] px-6 py-4 flex-shrink-0" style={{ borderColor: 'var(--border-main)' }}>
                 <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : ''}`}>
@@ -259,6 +353,100 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                         </div>
                     )}
                 </div>
+=======
+            {/* Navigation */}
+            <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
+                {baseNavItems.map((item) => {
+                    const hasSubItems = !!item.subItems && item.subItems.length > 0;
+                    const isExpanded = !!expandedMenus[item.label];
+                    const isActive = isParentActive(item);
+
+                    if (!hasSubItems) {
+                        // Single link rendering
+                        return (
+                            <NavLink
+                                key={item.path}
+                                to={item.path!}
+                                end={item.path === '/dashboard'}
+                                className={({ isActive }) =>
+                                    `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                                        isActive ? 'text-brand-black' : ''
+                                    }`
+                                }
+                                style={({ isActive }) => ({
+                                    background: isActive ? 'var(--brand-lime)' : 'transparent',
+                                    color: isActive ? '#0A0A0A' : 'var(--sidebar-text)',
+                                    minHeight: '44px',
+                                })}
+                            >
+                                <item.icon size={20} className="flex-shrink-0" />
+                                {!isCollapsed && <span className="truncate">{item.label}</span>}
+                            </NavLink>
+                        );
+                    }
+
+                    // Multi-link accordion rendering
+                    return (
+                        <div key={item.label} className="space-y-1">
+                            <button
+                                onClick={() => toggleMenu(item.label)}
+                                className={`flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+                                    isActive && !isExpanded ? 'bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)]' : 'text-[var(--sidebar-text)] hover:bg-white/5'
+                                }`}
+                                style={{ minHeight: '44px', border: 'none', background: 'transparent' }}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <item.icon size={20} className="flex-shrink-0" />
+                                    {!isCollapsed && <span className="truncate">{item.label}</span>}
+                                </div>
+                                {!isCollapsed && (
+                                    <div className="text-[var(--text-muted)]">
+                                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </div>
+                                )}
+                            </button>
+
+                            {/* Sub items list with line connector */}
+                            {isExpanded && !isCollapsed && (
+                                <div className="ml-5 pl-3 border-l border-[var(--border-main)]/40 space-y-1 py-1 animate-fadeIn">
+                                    {item.subItems!.map((sub) => (
+                                        <NavLink
+                                            key={sub.path}
+                                            to={sub.path}
+                                            className={({ isActive }) =>
+                                                `flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                                    isActive
+                                                        ? 'text-[var(--brand-lime)] bg-white/5'
+                                                        : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'
+                                                }`
+                                            }
+                                        >
+                                            <span className="truncate">{sub.label}</span>
+                                        </NavLink>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </nav>
+
+            {/* Logout */}
+            <div className="px-2 py-3 border-t" style={{ borderColor: 'var(--border-main)' }}>
+                <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full transition-all duration-200 cursor-pointer"
+                    style={{
+                        color: 'var(--alert-red)',
+                        background: 'transparent',
+                        border: 'none',
+                        minHeight: '44px',
+                    }}
+                >
+                    <LogOut size={20} className="flex-shrink-0" />
+                    {!isCollapsed && <span>{t('common.logout')}</span>}
+                </button>
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
             </div>
 
             {/* Collapse Toggle Button */}

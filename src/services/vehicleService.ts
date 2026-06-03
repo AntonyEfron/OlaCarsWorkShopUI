@@ -18,6 +18,15 @@ export interface Vehicle {
         [key: string]: unknown;
     };
     status: string;
+    currentDriver?: {
+        _id: string;
+        personalInfo?: {
+            fullName: string;
+            phone?: string;
+            email?: string;
+        };
+        driverId: string;
+    };
     createdAt: string;
     updatedAt: string;
     [key: string]: unknown;

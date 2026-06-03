@@ -10,6 +10,7 @@ import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
+    getHourlyLabourRate,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
 } from '../services/workOrderService';
@@ -81,17 +82,34 @@ const WorkOrderDetail = () => {
 
     /* ── Service Bill ── */
     const [bill, setBill] = useState<any>(null);
+    const [isDriverBilled, setIsDriverBilled] = useState(false);
+    const [hourlyRate, setHourlyRate] = useState(150);
+    const [taxRate, setTaxRate] = useState(5);
 
     const load = useCallback(async () => {
         if (!id) return;
         try {
             const data = await getWorkOrderById(id);
             setWo(data);
+
+            // Load custom hourly rate preference
+            try {
+                const rate = await getHourlyLabourRate();
+                setHourlyRate(rate);
+            } catch {}
+
             if (data.serviceBillId) {
                 const b = await getServiceBillById(data.serviceBillId);
                 setBill(b);
             } else {
                 setBill(null);
+                // Default isDriverBilled to true if vehicle has current driver assigned
+                const v = data.vehicleId as any;
+                if (v && v.currentDriver) {
+                    setIsDriverBilled(true);
+                } else {
+                    setIsDriverBilled(false);
+                }
             }
         } catch { /* interceptor */ } finally { setLoading(false); }
     }, [id]);
@@ -182,7 +200,20 @@ const WorkOrderDetail = () => {
                         <h1 className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>{wo.workOrderNumber}</h1>
                         <span className={`badge ${getStatusBadge(wo.status)}`}>{fmtStatus(wo.status)}</span>
                     </div>
-                    <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>{vehicleLabel()} • {wo.workOrderType.replace(/_/g, ' ')}</p>
+                    <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {vehicleLabel()} • {wo.workOrderType.replace(/_/g, ' ')}
+                        {(() => {
+                            const v = wo.vehicleId as any;
+                            if (v?.currentDriver) {
+                                return (
+                                    <span className="ml-2 px-2 py-0.5 bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] rounded-md text-[10px] font-bold uppercase tracking-wider">
+                                        Driver: {v.currentDriver.personalInfo?.fullName}
+                                    </span>
+                                );
+                            }
+                            return null;
+                        })()}
+                    </p>
                 </div>
             </div>
 
@@ -440,6 +471,18 @@ const WorkOrderDetail = () => {
                         <InfoRow label={t('dashboard.table.type')} value={t(`workOrders.types.${wo.workOrderType.toLowerCase()}`, { defaultValue: wo.workOrderType.replace(/_/g, ' ') })} />
                         <InfoRow label={t('dashboard.table.priority')} value={t(`workOrders.priorities.${wo.priority.toLowerCase()}`, { defaultValue: wo.priority })} />
                         <InfoRow label={t('workOrders.create.vehicle')} value={vehicleLabel()} />
+                        {(() => {
+                            const v = wo.vehicleId as any;
+                            if (v?.currentDriver) {
+                                return (
+                                    <InfoRow 
+                                        label="Assigned Driver" 
+                                        value={`${v.currentDriver.personalInfo?.fullName} (${v.currentDriver.driverId}) ${v.currentDriver.personalInfo?.phone || ''}`}
+                                    />
+                                );
+                            }
+                            return null;
+                        })()}
                         <InfoRow label={t('common.created')} value={fmtDate(wo.createdAt)} />
                         <InfoRow label={t('common.updated')} value={fmtDate(wo.updatedAt)} />
                     </div>
@@ -953,7 +996,8 @@ const WorkOrderDetail = () => {
                                                 <input 
                                                     type="number" 
                                                     id="hourlyRate"
-                                                    defaultValue={150} 
+                                                    value={hourlyRate}
+                                                    onChange={(e) => setHourlyRate(Number(e.target.value))}
                                                     className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
                                                 />
                                             </div>
@@ -962,27 +1006,78 @@ const WorkOrderDetail = () => {
                                                 <input 
                                                     type="number" 
                                                     id="taxRate"
-                                                    defaultValue={5} 
+                                                    value={taxRate}
+                                                    onChange={(e) => setTaxRate(Number(e.target.value))}
                                                     className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
                                                 />
                                             </div>
                                         </div>
 
-                                        <button 
-                                            className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                                            disabled={actionLoading || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
-                                            onClick={() => {
-                                                const rate = (document.getElementById('hourlyRate') as HTMLInputElement)?.value;
-                                                const tax = (document.getElementById('taxRate') as HTMLInputElement)?.value;
-                                                doAction(() => generateBill(id!, { 
-                                                    hourlyRate: Number(rate), 
-                                                    taxRate: Number(tax) 
-                                                }));
-                                            }}
-                                        >
-                                            {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
-                                            Generate Final Bill
-                                        </button>
+                                        {(() => {
+                                            const v = wo.vehicleId as any;
+                                            if (v && v.currentDriver) {
+                                                return (
+                                                    <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)]">
+                                                        <div>
+                                                            <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
+                                                            <p className="text-[10px] text-[var(--text-dim)] mt-0.5">Toggle if this bill is to be paid by the driver</p>
+                                                        </div>
+                                                        <button 
+                                                            className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
+                                                            onClick={() => setIsDriverBilled(!isDriverBilled)}
+                                                        >
+                                                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isDriverBilled ? 'right-1' : 'left-1'}`} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
+                                        {(() => {
+                                            const preBillValue = (wo.actualLabourHours || 0) * hourlyRate + (wo.actualPartsCost || 0);
+                                            return (
+                                                <>
+                                                    <div className="p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] space-y-2">
+                                                        <div className="flex justify-between text-xs text-[var(--text-muted)]">
+                                                            <span>Labour ({wo.actualLabourHours || 0} hrs @ {hourlyRate} AED/hr)</span>
+                                                            <span className="font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * hourlyRate} AED</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-xs text-[var(--text-muted)]">
+                                                            <span>Parts Cost</span>
+                                                            <span className="font-mono text-[var(--text-main)]">{wo.actualPartsCost || 0} AED</span>
+                                                        </div>
+                                                        <div className="h-px bg-[var(--border-main)] my-2" />
+                                                        <div className="flex justify-between text-sm font-bold">
+                                                            <span className="text-[var(--text-main)] uppercase">Estimated Bill Total</span>
+                                                            <span className="font-mono text-[var(--brand-lime)]">{preBillValue} AED</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <button 
+                                                        className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                                        disabled={actionLoading || preBillValue <= 0 || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
+                                                        onClick={() => {
+                                                            doAction(() => generateBill(id!, { 
+                                                                hourlyRate: Number(hourlyRate), 
+                                                                taxRate: Number(taxRate),
+                                                                isDriverBilled
+                                                            }));
+                                                        }}
+                                                    >
+                                                        {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
+                                                        Generate Final Bill
+                                                    </button>
+                                                    
+                                                    {preBillValue <= 0 && (
+                                                        <div className="flex items-center justify-center gap-2 text-red-500/80">
+                                                            <AlertTriangle size={14} />
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider">Bill value must be greater than 0 to generate a bill</span>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                         
                                         {!['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED'].includes(wo.status) && (
                                             <div className="flex items-center justify-center gap-2 text-red-500/80">
@@ -998,27 +1093,37 @@ const WorkOrderDetail = () => {
                                                 <div>
                                                     <p className="text-[10px] font-bold text-[var(--brand-lime)] uppercase tracking-wider">Bill Generated</p>
                                                     <h4 className="text-xl font-bold text-[var(--text-main)] mt-1">Invoice Linked Successfully</h4>
+                                                    <p className="text-xs font-mono font-bold text-[var(--text-dim)] mt-2 bg-black/10 px-2 py-1 rounded-md inline-block">
+                                                        ID: {bill?.billNumber}
+                                                    </p>
                                                 </div>
                                                 <div className="w-12 h-12 rounded-xl bg-[var(--brand-lime-alpha)] flex items-center justify-center text-[var(--brand-lime)]">
                                                     <CheckCircle2 size={24} />
                                                 </div>
                                             </div>
 
+                                            {bill?.isDriverBilled && (
+                                                <div className="mb-4 px-3 py-1.5 rounded-lg bg-[var(--brand-lime)] text-[var(--brand-black)] text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-1.5">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                                                    Driver Billed
+                                                </div>
+                                            )}
+
                                             <div className="space-y-4 py-4 border-y border-[var(--border-main)]">
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-[var(--text-muted)]">Actual Labour ({wo.actualLabourHours} hrs)</span>
-                                                    <span className="text-[var(--text-main)] font-mono">{(wo.actualLabourHours || 0) * 150} AED</span>
+                                                    <span className="text-[var(--text-main)] font-mono">{(wo.actualLabourHours || 0) * (bill?.labourSummary?.hourlyRate || 50)} $</span>
                                                 </div>
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-[var(--text-muted)]">Parts Total</span>
-                                                    <span className="text-[var(--text-main)] font-mono">{wo.actualPartsCost || 0} AED</span>
+                                                    <span className="text-[var(--text-main)] font-mono">{wo.actualPartsCost || 0} $</span>
                                                 </div>
                                             </div>
 
                                             <div className="pt-4 flex justify-between items-center">
                                                 <span className="text-sm font-bold text-[var(--text-main)] uppercase">Total Amount</span>
                                                 <span className="text-2xl font-black text-[var(--brand-lime)] font-mono">
-                                                    {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 150)} AED
+                                                    {bill?.totalAmount?.toLocaleString() || ((wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 50))} $
                                                 </span>
                                             </div>
                                         </div>
@@ -1026,9 +1131,9 @@ const WorkOrderDetail = () => {
                                         <div className="flex gap-4">
                                             <button 
                                                 className="w-full h-12 bg-transparent hover:bg-white/5 border border-[var(--border-main)] text-[var(--text-main)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
-                                                onClick={() => navigate(`/billing/bills/${wo.serviceBillId}`)}
+                                                onClick={() => navigate(`/service-bills`)}
                                             >
-                                                View Detailed Invoice
+                                                Go to Bills Management
                                                 <ChevronRight size={16} />
                                             </button>
                                             <button 
@@ -1094,13 +1199,13 @@ const WorkOrderDetail = () => {
                                             </div>
                                             <span className="text-xs text-[var(--text-muted)]">Labour</span>
                                         </div>
-                                        <span className="text-xs font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * 150} AED</span>
+                                        <span className="text-xs font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * 50} $</span>
                                     </div>
                                     <div className="h-px bg-[var(--border-main)] my-2"></div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-[var(--text-main)]">Subtotal</span>
                                         <span className="text-sm font-bold text-[var(--brand-lime)]">
-                                            {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 150)} AED
+                                            {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 50)} $
                                         </span>
                                     </div>
                                 </div>

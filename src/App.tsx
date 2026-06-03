@@ -10,13 +10,18 @@ import Dashboard from './pages/Dashboard';
 import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
 import WorkOrderDetail from './pages/WorkOrderDetail';
-import Profile from './pages/Profile';
+import SystemPreferences from './pages/SystemPreferences';
 import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
+<<<<<<< HEAD
 import ScrapList from './pages/ScrapList';
 import WriteOffList from './pages/WriteOffList';
+=======
+import ServiceBills from './pages/ServiceBills';
+import WorkshopInvoices from './pages/WorkshopInvoices';
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
 
 function App() {
     useEffect(() => {
@@ -68,9 +73,15 @@ function App() {
                             <Route path="/inventory" element={<Inventory />} />
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
+<<<<<<< HEAD
                             <Route path="/scrap-list" element={<ScrapList />} />
                             <Route path="/write-offs" element={<WriteOffList />} />
                             <Route path="/profile" element={<Profile />} />
+=======
+                            <Route path="/service-bills" element={<ServiceBills />} />
+                            <Route path="/workshop-invoices" element={<WorkshopInvoices />} />
+                            <Route path="/profile" element={<SystemPreferences />} />
+>>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
                         </Route>
                     </Route>
 
