@@ -15,6 +15,8 @@ import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
+import ScrapList from './pages/ScrapList';
+import WriteOffList from './pages/WriteOffList';
 
 function App() {
     useEffect(() => {
@@ -66,6 +68,8 @@ function App() {
                             <Route path="/inventory" element={<Inventory />} />
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
+                            <Route path="/scrap-list" element={<ScrapList />} />
+                            <Route path="/write-offs" element={<WriteOffList />} />
                             <Route path="/profile" element={<Profile />} />
                         </Route>
                     </Route>

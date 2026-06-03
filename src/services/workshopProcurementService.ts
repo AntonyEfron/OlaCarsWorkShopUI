@@ -11,7 +11,7 @@ export interface ProcurementRequest {
     unit: string;
   };
   quantity: number;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONVERTED_TO_PO';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONVERTED_TO_PO' | 'PENDING_FINANCE_APPROVAL';
   branch: any;
   requestedBy: {
     _id: string;
@@ -27,6 +27,12 @@ export interface ProcurementRequest {
     name: string;
   };
   notes?: string;
+  merchandiserPrice?: number;
+  merchandiserTotalAmount?: number;
+  originalTotalAmount?: number;
+  documents?: string[];
+  rejectionNote?: string;
+  approvalNote?: string;
   createdAt: string;
   updatedAt: string;
 }
