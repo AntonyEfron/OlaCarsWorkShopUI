@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { useAuthRefresh } from './hooks/useAuthRefresh';
 import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/Login';
+import Profile from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
@@ -20,6 +21,9 @@ import PurchaseRequestDetail from './pages/PurchaseRequestDetail';
 import ServiceBills from './pages/ServiceBills';
 import WorkshopInvoices from './pages/WorkshopInvoices';
 import MaintenanceTracker from './pages/MaintenanceTracker';
+import ScrapList from './pages/ScrapList';
+import WriteOffList from './pages/WriteOffList';
+import Profile from './pages/Profile';
 
 function App() {
     useAuthRefresh();
@@ -63,6 +67,9 @@ function App() {
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
                             <Route path="/purchase-requests/:id" element={<PurchaseRequestDetail />} />
+                            <Route path="/scrap-list" element={<ScrapList />} />
+                            <Route path="/write-offs" element={<WriteOffList />} />
+                            <Route path="/profile" element={<Profile />} />
                             <Route path="/service-bills" element={<ServiceBills />} />
                             <Route path="/workshop-invoices" element={<WorkshopInvoices />} />
                             <Route path="/maintenance-tracker" element={<MaintenanceTracker />} />

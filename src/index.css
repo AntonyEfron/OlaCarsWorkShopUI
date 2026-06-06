@@ -27,6 +27,7 @@
   --border-main: #2A2A2A;
   --sidebar-text: #9CA3AF;
   --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-active: #D4F12E;
 }
 
 :root[data-theme='light'] {
@@ -41,6 +42,7 @@
   --border-main: #E5E7EB;
   --sidebar-text: #374151;
   --sidebar-hover: rgba(0, 0, 0, 0.05);
+  --sidebar-active: #4D7C0F;
 }
 
 /* ══════════════════════════════════════════════════════════════
