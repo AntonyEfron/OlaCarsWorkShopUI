@@ -266,7 +266,8 @@ const Inventory = () => {
   }
 
   return (
-    <div className="space-y-6 animate-fadeInUp">
+    <>
+      <div className="space-y-6 animate-fadeInUp">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -481,6 +482,9 @@ const Inventory = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Modals are rendered outside the animate-fadeInUp container so fixed layout matches the viewport */}
       </div>
 
       {/* Add/Edit Modal */}
@@ -775,7 +779,7 @@ const Inventory = () => {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

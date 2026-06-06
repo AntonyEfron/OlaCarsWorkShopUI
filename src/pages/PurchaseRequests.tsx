@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { 
-  ShoppingCart, Search, Filter, Clock, 
-  CheckCircle2, XCircle, ChevronDown,  Plus, 
-  Eye, Loader2, Check, X, Package
+import { useNavigate } from 'react-router-dom';
+import {
+  ShoppingCart, Search, Filter, Clock,
+  CheckCircle2, XCircle, ChevronDown, Plus,
+  Eye, Loader2, Check, X, Package, Truck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getProcurementRequests, approveProcurementRequest, createProcurementRequest, type ProcurementRequest } from '../services/workshopProcurementService';
+import {
+  getProcurementRequests,
+  approveProcurementRequest,
+  createProcurementRequest,
+  receiveProcurementRequest,
+  type ProcurementRequest
+} from '../services/workshopProcurementService';
 import { getParts, type InventoryPart } from '../services/inventoryService';
-import { getSuppliers, type Supplier } from '../services/supplierService';
 import { getUserRole, getBranchId } from '../utils/auth';
 
 const PurchaseRequests = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const role = getUserRole();
   const branchId = getBranchId() || '';
   const isManager = role === 'workshopmanager';
@@ -26,7 +33,6 @@ const PurchaseRequests = () => {
   // New Request Modal State
   const [showNewModal, setShowNewModal] = useState(false);
   const [parts, setParts] = useState<InventoryPart[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [newRequestForm, setNewRequestForm] = useState({
     partId: '',
     quantity: 1,
@@ -36,7 +42,6 @@ const PurchaseRequests = () => {
 
   // Approval state
   const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [selectedSupplier, setSelectedSupplier] = useState('');
   const [selectedQuantity, setSelectedQuantity] = useState<number>(0);
 
   useEffect(() => {
@@ -48,23 +53,19 @@ const PurchaseRequests = () => {
 
   const loadFormData = async () => {
     try {
-      const [partsData, suppliersData] = await Promise.all([
-        getParts({ branchId }),
-        getSuppliers()
-      ]);
+      const partsData = await getParts({ branchId });
       setParts(partsData);
-      setSuppliers(suppliersData);
     } catch (err) {
-      toast.error('Failed to load parts or suppliers');
+      toast.error('Failed to load parts');
     }
   };
 
   const loadOrders = async () => {
     setLoading(true);
     try {
-      const response = await getProcurementRequests({ 
-        branchId, 
-        status: statusFilter === 'ALL' ? undefined : statusFilter 
+      const response = await getProcurementRequests({
+        branchId,
+        status: statusFilter === 'ALL' ? undefined : statusFilter
       });
       console.log("[DEBUG] loadOrders response:", response);
       setOrders(response);
@@ -75,22 +76,15 @@ const PurchaseRequests = () => {
     }
   };
 
-  const handleAction = async (id: string, status: 'APPROVED' | 'REJECTED') => {
-    if (status === 'APPROVED' && !selectedSupplier) {
-      toast.error('Please select a supplier before approving');
-      return;
-    }
-
+  const handleAction = async (id: string, status: 'PENDING_FINANCE_APPROVAL' | 'REJECTED') => {
     setSubmitting(id);
     try {
-      await approveProcurementRequest(id, { 
-        status, 
-        supplier: status === 'APPROVED' ? selectedSupplier : undefined,
-        quantity: status === 'APPROVED' ? selectedQuantity : undefined
+      await approveProcurementRequest(id, {
+        status,
+        quantity: status === 'PENDING_FINANCE_APPROVAL' ? selectedQuantity : undefined
       });
-      toast.success(status === 'APPROVED' ? 'Request approved and sent to Finance' : 'Request rejected');
+      toast.success(status === 'PENDING_FINANCE_APPROVAL' ? 'Request approved and sent to Finance' : 'Request rejected');
       setApprovingId(null);
-      setSelectedSupplier('');
       setSelectedQuantity(0);
       loadOrders();
     } catch (err: any) {
@@ -128,15 +122,19 @@ const PurchaseRequests = () => {
     }
   };
 
-  const filteredOrders = orders.filter(o => 
-    o.requestNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.part.partName.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredOrders = orders.filter(o =>
+    (o.requestNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (o.part?.partName || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'PENDING': return { bg: 'bg-blue-500/10', text: 'text-blue-500', icon: <Clock size={12} /> };
+      case 'PENDING_FINANCE_APPROVAL': return { bg: 'bg-orange-500/10', text: 'text-orange-500', icon: <Clock size={12} /> };
       case 'APPROVED': return { bg: 'bg-green-500/10', text: 'text-green-500', icon: <CheckCircle2 size={12} /> };
+      case 'COST_APPROVED': return { bg: 'bg-teal-500/10', text: 'text-teal-400', icon: <CheckCircle2 size={12} /> };
+      case 'IN_TRANSIT': return { bg: 'bg-sky-500/10', text: 'text-sky-400', icon: <Truck size={12} /> };
+      case 'RECEIVED': return { bg: 'bg-emerald-500/10', text: 'text-emerald-400', icon: <CheckCircle2 size={12} /> };
       case 'REJECTED': return { bg: 'bg-red-500/10', text: 'text-red-500', icon: <XCircle size={12} /> };
       default: return { bg: 'bg-gray-500/10', text: 'text-gray-500', icon: <Clock size={12} /> };
     }
@@ -171,14 +169,18 @@ const PurchaseRequests = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <select 
+        <select
           className="input-field w-40"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
           <option value="ALL">All Statuses</option>
           <option value="PENDING">Pending</option>
+          <option value="PENDING_FINANCE_APPROVAL">Pending Finance</option>
           <option value="APPROVED">Approved</option>
+          <option value="COST_APPROVED">Cost Approved</option>
+          <option value="IN_TRANSIT">In Transit</option>
+          <option value="RECEIVED">Received</option>
           <option value="REJECTED">Rejected</option>
           <option value="CONVERTED_TO_PO">Converted to PO</option>
         </select>
@@ -225,20 +227,23 @@ const PurchaseRequests = () => {
                           <Package size={14} className="opacity-40" />
                         </div>
                         <div>
-                          <p className="text-xs font-bold">{order.part.partName}</p>
-                          <p className="text-[10px] opacity-40 font-mono">{order.part.partNumber}</p>
+                          <p className="text-xs font-bold">{order.part?.partName || 'Unknown Part'}</p>
+                          <p className="text-[10px] opacity-40 font-mono">{order.part?.partNumber || '—'}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="text-xs font-bold">{order.quantity} {order.part.unit}</td>
-                    <td className="text-xs">{order.requestedBy.fullName}</td>
+                    <td className="text-xs font-bold">{order.quantity} {order.part?.unit || ''}</td>
+                    <td className="text-xs">{order.requestedBy?.fullName || '—'}</td>
                     <td>
-                      <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${
-                        order.status === 'APPROVED' ? 'bg-green-500/10 text-green-500' :
-                        order.status === 'PENDING' ? 'bg-orange-500/10 text-orange-500' :
-                        order.status === 'REJECTED' ? 'bg-red-500/10 text-red-500' :
-                        'bg-blue-500/10 text-blue-500'
-                      }`}>
+                      <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${order.status === 'APPROVED' ? 'bg-green-500/10 text-green-500' :
+                          order.status === 'COST_APPROVED' ? 'bg-teal-500/10 text-teal-400' :
+                            order.status === 'IN_TRANSIT' ? 'bg-sky-500/10 text-sky-400' :
+                              order.status === 'RECEIVED' ? 'bg-emerald-500/10 text-emerald-400' :
+                                order.status === 'PENDING_FINANCE_APPROVAL' ? 'bg-orange-500/10 text-orange-500' :
+                                  order.status === 'PENDING' ? 'bg-blue-500/10 text-blue-500' :
+                                    order.status === 'REJECTED' ? 'bg-red-500/10 text-red-500' :
+                                      'bg-gray-500/10 text-gray-500'
+                        }`}>
                         {order.status.replace(/_/g, ' ')}
                       </span>
                     </td>
@@ -256,16 +261,8 @@ const PurchaseRequests = () => {
                                   onChange={(e) => setSelectedQuantity(Number(e.target.value))}
                                   title="Edit Quantity"
                                 />
-                                <select
-                                  className="input-field !py-1.5 !px-2 text-[10px] w-32"
-                                  value={selectedSupplier}
-                                  onChange={(e) => setSelectedSupplier(e.target.value)}
-                                >
-                                  <option value="">Select Supplier...</option>
-                                  {suppliers.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
-                                </select>
                                 <button
-                                  onClick={() => handleAction(order._id, 'APPROVED')}
+                                  onClick={() => handleAction(order._id, 'PENDING_FINANCE_APPROVAL')}
                                   className="p-2 rounded-lg bg-green-500/20 text-green-500 hover:bg-green-500 hover:text-white transition-all"
                                   disabled={submitting === order._id}
                                 >
@@ -284,10 +281,10 @@ const PurchaseRequests = () => {
                                   onClick={() => {
                                     setApprovingId(order._id);
                                     setSelectedQuantity(order.quantity);
-                                    loadFormData(); 
+                                    loadFormData();
                                   }}
                                   className="p-2 rounded-lg bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-white transition-all"
-                                  title="Approve & Select Supplier"
+                                  title="Approve"
                                   disabled={submitting === order._id}
                                 >
                                   <Check size={16} />
@@ -304,7 +301,38 @@ const PurchaseRequests = () => {
                             )}
                           </>
                         )}
+                        {order.status === 'IN_TRANSIT' && (
+                          <button
+                            onClick={async () => {
+                              setSubmitting(order._id);
+                              try {
+                                await receiveProcurementRequest(order._id);
+                                toast.success('Package marked as received!');
+                                loadOrders();
+                              } catch (err: any) {
+                                toast.error(err.response?.data?.message || 'Failed to receive');
+                              } finally {
+                                setSubmitting(null);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                            disabled={submitting === order._id}
+                          >
+                            {submitting === order._id ? <Loader2 size={12} className="animate-spin" /> : <Package size={12} />}
+                            Receive
+                          </button>
+                        )}
+                        {order.status === 'RECEIVED' && !order.inventoryAdded && (
+                          <button
+                            onClick={() => navigate(`/purchase-requests/${order._id}`)}
+                            className="px-3 py-1.5 rounded-lg bg-[var(--brand-lime)]/10 text-[var(--brand-lime)] hover:bg-[var(--brand-lime)] hover:text-black transition-all text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                          >
+                            <Plus size={12} />
+                            Add to Inventory
+                          </button>
+                        )}
                         <button
+                          onClick={() => navigate(`/purchase-requests/${order._id}`)}
                           className="p-2 rounded-lg hover:bg-[var(--bg-input)] transition-colors"
                           title="View Details"
                         >
@@ -343,8 +371,8 @@ const PurchaseRequests = () => {
                   value={newRequestForm.partId}
                   onChange={(e) => {
                     const part = parts.find(p => p._id === e.target.value);
-                    setNewRequestForm({ 
-                      ...newRequestForm, 
+                    setNewRequestForm({
+                      ...newRequestForm,
                       partId: e.target.value,
                       unitPrice: part?.unitCost || 0
                     });

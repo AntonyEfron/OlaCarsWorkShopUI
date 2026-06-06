@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, X, RefreshCw, Search, Mail, Phone, Wrench, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, RefreshCw, Search, Mail, Phone, Wrench, AlertTriangle, Unlock } from 'lucide-react';
 import {
     getAllStaff,
     createStaff,
@@ -175,6 +175,18 @@ const ManageStaff = () => {
             setFormError(err.response?.data?.message || err.message || 'Operation failed');
         } finally {
             setFormLoading(false);
+        }
+    };
+
+    const handleUnblock = async (staff: WorkshopStaff) => {
+        try {
+            await updateStaff({
+                id: staff._id,
+                status: 'ACTIVE'
+            });
+            fetchData();
+        } catch (err: any) {
+            setError(err.response?.data?.message || err.message || 'Failed to unblock');
         }
     };
 
@@ -395,6 +407,16 @@ const ManageStaff = () => {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
+                                                {staff.status === 'LOCKED' && (
+                                                    <button
+                                                        onClick={() => handleUnblock(staff)}
+                                                        className="p-2 rounded-lg hover:bg-lime/10 transition-colors"
+                                                        style={{ color: 'var(--brand-lime)' }}
+                                                        title="Unblock Account"
+                                                    >
+                                                        <Unlock size={18} />
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => openEditModal(staff)}
                                                     className="p-2 rounded-lg hover:bg-lime/10 transition-colors"

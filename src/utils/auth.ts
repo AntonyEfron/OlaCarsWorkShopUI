@@ -18,8 +18,26 @@ export const setToken = (token: string): void => {
     localStorage.setItem('ws_token', token);
 };
 
+export const getRefreshToken = (): string | null => {
+    return localStorage.getItem('ws_refreshToken');
+};
+
+export const setRefreshToken = (token: string): void => {
+    localStorage.setItem('ws_refreshToken', token);
+};
+
+export const getApiRole = (): string | null => {
+    return localStorage.getItem('ws_apiRole');
+};
+
+export const setApiRole = (role: string): void => {
+    localStorage.setItem('ws_apiRole', role);
+};
+
 export const removeToken = (): void => {
     localStorage.removeItem('ws_token');
+    localStorage.removeItem('ws_refreshToken');
+    localStorage.removeItem('ws_apiRole');
     localStorage.removeItem('ws_user');
 };
 
@@ -60,12 +78,20 @@ export const getDecodedToken = (): DecodedToken | null => {
 
 export const isTokenValid = (): boolean => {
     const decoded = getDecodedToken();
-    if (!decoded) return false;
+    const hasRefreshToken = !!getRefreshToken();
+
+    if (!decoded) {
+        // If we have no decoded token but we have a refresh token,
+        // we tentatively consider it valid and let the interceptor/refresh hook handle it.
+        return hasRefreshToken;
+    }
 
     if (decoded.exp) {
         const currentTime = Date.now() / 1000;
         if (decoded.exp < currentTime) {
-            return false;
+            // Access token expired, but if we have a refresh token,
+            // we trust the refresh mechanism to renew it.
+            return hasRefreshToken;
         }
     }
 

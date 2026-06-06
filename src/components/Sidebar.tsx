@@ -72,6 +72,11 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                 { path: '/workshop-invoices', label: 'Driver Invoices' },
             ],
         },
+        {
+            path: '/maintenance-tracker',
+            icon: Wrench,
+            label: 'Maintenance Tracker',
+        },
     ];
 
     if (isManager) {

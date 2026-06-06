@@ -10,7 +10,10 @@ export interface LoginResponse {
     accessToken?: string;
     refreshToken?: string;
     message?: string;
+    user?: Record<string, unknown>;
     staff?: Record<string, unknown>;
+    manager?: Record<string, unknown>;
+    data?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
@@ -29,7 +32,12 @@ export const workshopManagerLogin = async (credentials: LoginCredentials): Promi
 };
 
 export const refreshStaffToken = async (token: string): Promise<LoginResponse> => {
-    const response = await api.post<LoginResponse>('/api/workshop-staff/refresh-token', { token });
+    const response = await api.post<LoginResponse>('/api/workshop-staff/refresh', { refreshToken: token });
+    return response.data;
+};
+
+export const refreshManagerToken = async (token: string): Promise<LoginResponse> => {
+    const response = await api.post<LoginResponse>('/api/workshop-manager/refresh', { refreshToken: token });
     return response.data;
 };
 

@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { isTokenValid, logout, getToken } from './utils/auth';
 import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import { useAuthRefresh } from './hooks/useAuthRefresh';
 import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -15,20 +16,13 @@ import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
+import PurchaseRequestDetail from './pages/PurchaseRequestDetail';
 import ServiceBills from './pages/ServiceBills';
 import WorkshopInvoices from './pages/WorkshopInvoices';
+import MaintenanceTracker from './pages/MaintenanceTracker';
 
 function App() {
-    useEffect(() => {
-        const interval = setInterval(() => {
-            const token = getToken();
-            if (token && !isTokenValid()) {
-                console.warn('[App] Session expired — logging out');
-                logout();
-            }
-        }, 30000);
-        return () => clearInterval(interval);
-    }, []);
+    useAuthRefresh();
 
     return (
         <ThemeProvider>
@@ -68,8 +62,10 @@ function App() {
                             <Route path="/inventory" element={<Inventory />} />
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
+                            <Route path="/purchase-requests/:id" element={<PurchaseRequestDetail />} />
                             <Route path="/service-bills" element={<ServiceBills />} />
                             <Route path="/workshop-invoices" element={<WorkshopInvoices />} />
+                            <Route path="/maintenance-tracker" element={<MaintenanceTracker />} />
                             <Route path="/profile" element={<SystemPreferences />} />
                         </Route>
                     </Route>
