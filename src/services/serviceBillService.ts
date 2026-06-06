@@ -93,3 +93,8 @@ export const getAccountingCodes = async (filters: any = {}) => {
   const response = await api.get(`/api/accounting-code`, { params: filters });
   return response.data.data;
 };
+
+export const getTaxProfiles = async (filters: any = {}) => {
+  const response = await api.get(`/api/tax`, { params: filters });
+  return response.data.data;
+};

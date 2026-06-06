@@ -26,6 +26,9 @@ export interface InventoryPart {
   isLowStock: boolean; // Virtual
   createdAt: string;
   updatedAt: string;
+  purchaseAccountId?: any;
+  incomeAccountId?: any;
+  taxId?: any;
 }
 
 export interface PartTransaction {

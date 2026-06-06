@@ -1,29 +1,19 @@
 import { useState, useEffect } from 'react';
-<<<<<<< HEAD
-import { useNavigate, useLocation } from 'react-router-dom';
-=======
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
 import { useTranslation } from 'react-i18next';
 import {
     LayoutDashboard,
     ClipboardList,
-    Package,
-    Users,
-    Trash2,
-    ChevronDown,
-    ChevronUp,
     User,
     LogOut,
+    Wrench,
+    Users,
     ChevronLeft,
     ChevronRight,
-<<<<<<< HEAD
-=======
     ChevronDown,
     Package,
     Receipt,
-    FileText,
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
+    Trash2,
 } from 'lucide-react';
 import { logout, getUser, getUserRole } from '../utils/auth';
 
@@ -33,16 +23,6 @@ interface SidebarProps {
 }
 
 interface SubItem {
-<<<<<<< HEAD
-    label: string;
-    path: string;
-}
-
-interface MenuItem {
-    id: string;
-    label: string;
-    icon: React.ReactNode;
-=======
     path: string;
     label: string;
 }
@@ -50,7 +30,6 @@ interface MenuItem {
 interface NavItem {
     label: string;
     icon: any;
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
     path?: string;
     subItems?: SubItem[];
 }
@@ -59,64 +38,12 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const location = useLocation();
-<<<<<<< HEAD
-    const [openSection, setOpenSection] = useState<string | null>(null);
-
-=======
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
     const user = getUser();
     const displayName = (user?.fullName as string) || 'Workshop Staff';
+
     const role = getUserRole();
     const isManager = role === 'workshopmanager';
-    const displayRole = isManager ? 'Workshop Manager' : 'Technician';
 
-<<<<<<< HEAD
-    const menuItems: MenuItem[] = [
-        {
-            id: 'dashboard',
-            label: t('common.dashboard', 'Dashboard'),
-            icon: <LayoutDashboard size={22} />,
-            path: '/dashboard',
-        },
-        {
-            id: 'work-list',
-            label: t('sidebar.workList', 'Work List'),
-            icon: <ClipboardList size={22} />,
-            subItems: [
-                { label: t('workOrders.list.new', 'New Work Order'), path: '/work-orders/create' },
-                { label: t('common.workOrders', 'Work Orders'), path: '/work-orders' },
-            ],
-        },
-        {
-            id: 'inventory',
-            label: t('sidebar.inventory', 'Inventory'),
-            icon: <Package size={22} />,
-            subItems: [
-                { label: 'Parts Inventory', path: '/inventory' },
-                { label: 'Part Requirements', path: '/requirements' },
-                { label: 'Purchase Request', path: '/purchase-requests' },
-                { label: 'Write Off', path: '/write-offs' },
-            ],
-        },
-        ...(isManager
-            ? [
-                  {
-                      id: 'staff',
-                      label: t('sidebar.staff', 'Staff'),
-                      icon: <Users size={22} />,
-                      subItems: [
-                          { label: 'Staff Management', path: '/manage-staff' },
-                      ],
-                  },
-              ]
-            : []),
-        {
-            id: 'scrap-management',
-            label: t('sidebar.scrapManagement', 'Scrap Management'),
-            icon: <Trash2 size={22} />,
-            subItems: [
-                { label: 'Scrap List', path: '/scrap-list' },
-=======
     const baseNavItems: NavItem[] = [
         { path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
         {
@@ -134,6 +61,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                 { path: '/inventory', label: 'Inventory Stock' },
                 { path: '/requirements', label: 'Part Requirements' },
                 { path: '/purchase-requests', label: 'Purchase Requests' },
+                { path: '/write-offs', label: 'Write Offs' },
             ],
         },
         {
@@ -142,7 +70,13 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
             subItems: [
                 { path: '/service-bills', label: 'Service Bills' },
                 { path: '/workshop-invoices', label: 'Driver Invoices' },
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
+            ],
+        },
+        {
+            label: 'Scrap Management',
+            icon: Trash2,
+            subItems: [
+                { path: '/scrap-list', label: 'Scrap List' },
             ],
         },
         {
@@ -152,39 +86,10 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         },
     ];
 
-    const isActive = (path: string) => {
-        if (!path) return false;
-        if (path === '/dashboard') {
-            return location.pathname === path;
-        }
-        return location.pathname.startsWith(path);
-    };
+    if (isManager) {
+        baseNavItems.push({ path: '/manage-staff', icon: Users, label: t('manageStaff.title', 'Manage Staff') });
+    }
 
-<<<<<<< HEAD
-    const isSectionActive = (item: MenuItem) => {
-        if (item.path) return isActive(item.path);
-        if (item.subItems) {
-            return item.subItems.some((sub) => isActive(sub.path));
-        }
-        return false;
-    };
-
-    useEffect(() => {
-        const activeItem = menuItems.find((item) =>
-            item.subItems?.some((sub) => isActive(sub.path))
-        );
-        if (activeItem) {
-            setOpenSection(activeItem.id);
-        }
-    }, [location.pathname]);
-
-    const toggleSection = (id: string) => {
-        setOpenSection((prev) => (prev === id ? null : id));
-    };
-
-    const handleNavigation = (path: string) => {
-        navigate(path);
-=======
     baseNavItems.push({ path: '/profile', icon: User, label: 'System Preferences' });
 
     // Determine if a parent is currently active based on current pathname
@@ -223,7 +128,6 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
             ...prev,
             [menuLabel]: !prev[menuLabel]
         }));
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
     };
 
     const handleLogout = () => {
@@ -257,108 +161,18 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                 </div>
             </div>
 
-            {/* Menu Items */}
-            <div className="flex-1 overflow-y-auto pt-6 custom-scrollbar overflow-x-hidden">
-                <div className="space-y-1">
-                    {menuItems.map((item) => {
-                        const hasSub = item.subItems && item.subItems.length > 0;
-                        const isOpen = openSection === item.id;
-                        const active = isSectionActive(item);
-
-                        return (
-                            <div key={item.id}>
-                                <div
-                                    onClick={() => {
-                                        if (isCollapsed && onToggle) {
-                                            onToggle();
-                                            if (hasSub) {
-                                                setOpenSection(item.id);
-                                            } else if (item.path) {
-                                                handleNavigation(item.path);
-                                            }
-                                        } else {
-                                            if (hasSub) {
-                                                toggleSection(item.id);
-                                            } else if (item.path) {
-                                                handleNavigation(item.path);
-                                            }
-                                        }
-                                    }}
-                                    className={`group relative flex items-center gap-4 px-6 py-3.5 cursor-pointer transition-all duration-200
-                                        ${active ? 'bg-[var(--sidebar-hover)]/80' : 'hover:bg-[var(--sidebar-hover)]'}
-                                        ${isCollapsed ? 'justify-center px-0' : ''}
-                                    `}
-                                    style={{
-                                        borderLeft: active ? '4px solid var(--sidebar-active)' : '4px solid transparent',
-                                    }}
-                                >
-                                    <div className={`${active ? 'text-[var(--sidebar-active)]' : 'text-[var(--sidebar-text)] group-hover:text-[var(--text-main)]'} transition-colors`}>
-                                        {item.icon}
-                                    </div>
-                                    {!isCollapsed && (
-                                        <div className="flex items-center justify-between w-full">
-                                            <span className={`text-[15px] font-medium transition-colors ${active ? 'text-[var(--text-main)]' : 'text-[var(--sidebar-text)] group-hover:text-[var(--text-main)]'}`}>
-                                                {item.label}
-                                            </span>
-                                            {hasSub && (
-                                                <span className="text-[var(--sidebar-text)]/50 group-hover:text-[var(--sidebar-text)]">
-                                                    {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {!isCollapsed && hasSub && (
-                                    <div
-                                        className={`ml-12 pl-4 relative border-l border-[var(--border-main)] flex flex-col gap-0.5 transition-all duration-300 ease-in-out overflow-hidden
-                                            ${isOpen ? 'max-h-[500px] opacity-100 mt-1 mb-2 py-1' : 'max-h-0 opacity-0 mt-0 mb-0 py-0'}
-                                        `}
-                                        style={{ borderColor: 'var(--border-main)' }}
-                                    >
-                                        {item.subItems!.map((sub, idx) => {
-                                            const isItActive = isActive(sub.path);
-                                            return (
-                                                <div
-                                                    key={idx}
-                                                    onClick={() => handleNavigation(sub.path)}
-                                                    className={`cursor-pointer py-2 text-sm transition-colors
-                                                        ${isItActive ? 'text-[var(--sidebar-active)] font-semibold' : 'text-[var(--sidebar-text)] hover:text-[var(--text-main)]'}
-                                                    `}
-                                                >
-                                                    {sub.label}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
+            {/* User Info */}
+            {!isCollapsed && (
+                <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border-main)' }}>
+                    <p className="text-xs font-medium truncate" style={{ color: 'var(--text-main)' }}>
+                        {displayName}
+                    </p>
+                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        {isManager ? 'Workshop Manager' : 'Technician'}
+                    </p>
                 </div>
-            </div>
+            )}
 
-<<<<<<< HEAD
-            {/* User Profile Section */}
-            <div className="mt-auto border-t border-[var(--border-main)] px-6 py-4 flex-shrink-0" style={{ borderColor: 'var(--border-main)' }}>
-                <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : ''}`}>
-                    <div className="w-10 h-10 rounded-full bg-[var(--bg-input)] overflow-hidden border-2 border-[#D4F12E] flex-shrink-0 flex items-center justify-center">
-                        <User size={20} className="text-[var(--sidebar-text)]" />
-                    </div>
-                    {!isCollapsed && (
-                        <div className="flex flex-col min-w-0">
-                            <span className="text-[var(--text-main)] text-sm font-semibold truncate">{displayName}</span>
-                            <span className="text-[var(--sidebar-text)] text-xs truncate">{displayRole}</span>
-                            <button
-                                onClick={handleLogout}
-                                className="text-xs text-red-400 hover:text-red-300 bg-red-950/30 px-2 py-0.5 rounded mt-1.5 inline-block w-fit cursor-pointer border-none"
-                            >
-                                {t('common.logout', 'Log Out')}
-                            </button>
-                        </div>
-                    )}
-                </div>
-=======
             {/* Navigation */}
             <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
                 {baseNavItems.map((item) => {
@@ -451,7 +265,6 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                     <LogOut size={20} className="flex-shrink-0" />
                     {!isCollapsed && <span>{t('common.logout')}</span>}
                 </button>
->>>>>>> b84e2024261012035f48792fa495c6a8c2f187b9
             </div>
 
             {/* Collapse Toggle Button */}

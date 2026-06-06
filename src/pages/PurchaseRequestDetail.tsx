@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Package, Clock, CheckCircle2, XCircle, Truck, AlertTriangle,
@@ -13,7 +13,7 @@ import {
 } from '../services/workshopProcurementService';
 
 const StatusBadge = ({ status }: { status: string }) => {
-  const styles: Record<string, { bg: string; text: string; icon: JSX.Element }> = {
+  const styles: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
     PENDING: { bg: 'bg-blue-500/10', text: 'text-blue-500', icon: <Clock size={14} /> },
     PENDING_FINANCE_APPROVAL: { bg: 'bg-orange-500/10', text: 'text-orange-500', icon: <Clock size={14} /> },
     APPROVED: { bg: 'bg-green-500/10', text: 'text-green-500', icon: <CheckCircle2 size={14} /> },

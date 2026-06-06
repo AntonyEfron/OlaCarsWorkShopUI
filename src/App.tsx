@@ -7,7 +7,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { useAuthRefresh } from './hooks/useAuthRefresh';
 import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/Login';
-import Profile from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
@@ -15,6 +14,7 @@ import WorkOrderDetail from './pages/WorkOrderDetail';
 import SystemPreferences from './pages/SystemPreferences';
 import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
+import CreatePart from './pages/CreatePart';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
 import PurchaseRequestDetail from './pages/PurchaseRequestDetail';
@@ -23,7 +23,6 @@ import WorkshopInvoices from './pages/WorkshopInvoices';
 import MaintenanceTracker from './pages/MaintenanceTracker';
 import ScrapList from './pages/ScrapList';
 import WriteOffList from './pages/WriteOffList';
-import Profile from './pages/Profile';
 
 function App() {
     useAuthRefresh();
@@ -64,12 +63,13 @@ function App() {
                             <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
                             <Route path="/manage-staff" element={<ManageStaff />} />
                             <Route path="/inventory" element={<Inventory />} />
+                            <Route path="/inventory/create" element={<CreatePart />} />
+                            <Route path="/inventory/edit/:id" element={<CreatePart />} />
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
                             <Route path="/purchase-requests/:id" element={<PurchaseRequestDetail />} />
                             <Route path="/scrap-list" element={<ScrapList />} />
                             <Route path="/write-offs" element={<WriteOffList />} />
-                            <Route path="/profile" element={<Profile />} />
                             <Route path="/service-bills" element={<ServiceBills />} />
                             <Route path="/workshop-invoices" element={<WorkshopInvoices />} />
                             <Route path="/maintenance-tracker" element={<MaintenanceTracker />} />

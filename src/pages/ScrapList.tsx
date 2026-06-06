@@ -344,7 +344,7 @@ const ScrapList = () => {
                                         return (
                                             <tr key={item._id}>
                                                 <td className="font-mono text-xs font-bold" style={{ color: 'var(--sidebar-active)' }}>
-                                                    {formatId(item._id || item.id)}
+                                                    {formatId(item._id)}
                                                 </td>
                                                 <td>
                                                     <div className="font-semibold" style={{ color: 'var(--text-main)' }}>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Package, Plus, Search, Filter, AlertTriangle,
@@ -25,6 +26,7 @@ const UNITS: UnitType[] = ['piece', 'litre', 'kg', 'metre', 'set', 'pair', 'box'
 
 const Inventory = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const user = getUser();
   const branchId = getBranchId() || '';
   const role = getUserRole();
@@ -39,7 +41,6 @@ const Inventory = () => {
   const [showFilters, setShowFilters] = useState(false);
 
   // Modals
-  const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [showRestockModal, setShowRestockModal] = useState(false);
   const [selectedPart, setSelectedPart] = useState<InventoryPart | null>(null);
@@ -50,17 +51,6 @@ const Inventory = () => {
   const [bulkSuccess, setBulkSuccess] = useState<string | null>(null);
   const [restockQty, setRestockQty] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-
-  // Form State
-  const [form, setForm] = useState({
-    partName: '',
-    partNumber: '',
-    category: 'Other' as PartCategory,
-    unit: 'piece' as UnitType,
-    unitCost: 0,
-    reorderLevel: 5,
-    description: ''
-  });
 
   useEffect(() => {
     loadParts();
@@ -84,28 +74,6 @@ const Inventory = () => {
     p.partName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.partNumber.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      if (selectedPart) {
-        await updatePart(selectedPart._id, form);
-        toast.success('Part updated successfully');
-      } else {
-        await createPart({ ...form, branchId });
-        toast.success('Part added to inventory');
-      }
-      setShowAddModal(false);
-      setSelectedPart(null);
-      resetForm();
-      loadParts();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Action failed');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleRestock = async () => {
     if (!selectedPart) return;
@@ -231,31 +199,7 @@ const Inventory = () => {
     }
   };
 
-  const resetForm = () => {
-    setForm({
-      partName: '',
-      partNumber: '',
-      category: 'Other',
-      unit: 'piece',
-      unitCost: 0,
-      reorderLevel: 5,
-      description: ''
-    });
-  };
 
-  const openEdit = (part: InventoryPart) => {
-    setSelectedPart(part);
-    setForm({
-      partName: part.partName,
-      partNumber: part.partNumber,
-      category: part.category,
-      unit: part.unit,
-      unitCost: part.unitCost,
-      reorderLevel: part.reorderLevel,
-      description: part.description || ''
-    });
-    setShowAddModal(true);
-  };
 
   if (loading && parts.length === 0) {
     return (
@@ -284,7 +228,7 @@ const Inventory = () => {
             </button>
             <button
               className="btn-primary"
-              onClick={() => { resetForm(); setSelectedPart(null); setShowAddModal(true); }}
+              onClick={() => navigate('/inventory/create')}
             >
               <Plus size={18} /> Add New Part
             </button>
@@ -341,7 +285,7 @@ const Inventory = () => {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
             <input
               type="text"
-              placeholder="Search by part name or serial number..."
+              placeholder="Search by part name or part ID..."
               className="input-field pl-10"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -446,13 +390,13 @@ const Inventory = () => {
                           >
                             < Truck size={16} />
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openEdit(part); }}
-                            className="p-2 rounded-lg hover:bg-blue-500/10 hover:text-blue-500 transition-colors"
-                            title="Edit"
-                          >
-                            <Edit2 size={16} />
-                          </button>
+                           <button
+                             onClick={(e) => { e.stopPropagation(); navigate(`/inventory/edit/${part._id}`); }}
+                             className="p-2 rounded-lg hover:bg-blue-500/10 hover:text-blue-500 transition-colors"
+                             title="Edit"
+                           >
+                             <Edit2 size={16} />
+                           </button>
                           {isManager && (
                             <button
                               onClick={async (e) => {
@@ -487,122 +431,7 @@ const Inventory = () => {
       {/* Modals are rendered outside the animate-fadeInUp container so fixed layout matches the viewport */}
       </div>
 
-      {/* Add/Edit Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-card w-full max-w-lg p-6 space-y-6 shadow-2xl mt-16">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold">{selectedPart ? 'Edit Part' : 'Add New Part'}</h2>
-              <button
-                onClick={() => { setShowAddModal(false); setSelectedPart(null); }}
-                className="p-2 hover:bg-[var(--bg-input)] rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Part Name</label>
-                  <input
-                    required
-                    placeholder="e.g., Brake Pad Set"
-                    className="input-field"
-                    value={form.partName}
-                    onChange={(e) => setForm({ ...form, partName: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Part/Serial Number</label>
-                  <input
-                    required
-                    placeholder="e.g., BP-44221-X"
-                    className="input-field font-mono"
-                    value={form.partNumber}
-                    onChange={(e) => setForm({ ...form, partNumber: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Category</label>
-                  <select
-                    className="input-field"
-                    value={form.category}
-                    onChange={(e) => setForm({ ...form, category: e.target.value as PartCategory })}
-                  >
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Unit Type</label>
-                  <select
-                    className="input-field"
-                    value={form.unit}
-                    onChange={(e) => setForm({ ...form, unit: e.target.value as UnitType })}
-                  >
-                    {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Unit Cost ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className="input-field"
-                    value={form.unitCost}
-                    onChange={(e) => setForm({ ...form, unitCost: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Reorder Level (Min Stock)</label>
-                  <input
-                    type="number"
-                    placeholder="5"
-                    className="input-field"
-                    value={form.reorderLevel}
-                    onChange={(e) => setForm({ ...form, reorderLevel: Number(e.target.value) })}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Description (Optional)</label>
-                <textarea
-                  rows={2}
-                  className="input-field resize-none"
-                  placeholder="Additional details, manufacturer, fitment info..."
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  className="btn-secondary flex-1"
-                  onClick={() => { setShowAddModal(false); setSelectedPart(null); }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary flex-1"
-                  disabled={submitting}
-                >
-                  {submitting ? <Loader2 size={18} className="animate-spin" /> : (selectedPart ? 'Update Part' : 'Add to Inventory')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Bulk Upload Modal */}
       {showBulkModal && (
