@@ -338,11 +338,35 @@ export const removePhoto = async (workOrderId: string, photoId: string): Promise
     return response.data.data || response.data;
 };
 
+// ── Tax Profiles ─────────────────────────────────────────────────────
+
+export interface TaxProfile {
+    _id: string;
+    name: string;
+    rate: number;
+    isActive: boolean;
+}
+
+export const getTaxProfiles = async (): Promise<TaxProfile[]> => {
+    try {
+        const response = await api.get('/api/tax', { 
+            params: { isActive: 'true' },
+            // @ts-ignore
+            skipToast: true 
+        });
+        return response.data.data || response.data || [];
+    } catch {
+        return [];
+    }
+};
+
 export const generateBill = async (
     workOrderId: string, 
     options?: { 
         hourlyRate?: number; 
         taxRate?: number; 
+        taxName?: string;
+        taxProfileId?: string;
         discount?: number; 
         notes?: string;
         isDriverBilled?: boolean;

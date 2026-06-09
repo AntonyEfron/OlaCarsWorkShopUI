@@ -32,6 +32,9 @@ export interface ProcurementRequest {
   receivedQuantity?: number;
   deficitQuantity?: number;
   deficitAmount?: number;
+  surplusQuantity?: number;
+  surplusAmount?: number;
+  ledgerEntries?: any[];
   inventoryAdded?: boolean;
   createdAt: string;
   updatedAt: string;

@@ -1,22 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Loader2, PlusCircle, Camera, X, Search, Package, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, PlusCircle, Camera, X, Search } from 'lucide-react';
 import {
     createWorkOrder,
-    getHourlyLabourRate,
     type WorkOrderType,
     type Priority,
 } from '../services/workOrderService';
 import { getVehicles, type Vehicle } from '../services/vehicleService';
-import { getParts, type InventoryPart } from '../services/inventoryService';
-import { getUser, getBranchId } from '../utils/auth';
+import { getBranchId } from '../utils/auth';
 import toast from 'react-hot-toast';
 
 const CreateWorkOrder = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const user = getUser();
     const branchId = getBranchId() || '';
 
     const WORK_ORDER_TYPES = [
@@ -42,21 +39,12 @@ const CreateWorkOrder = () => {
     const [vehicleSearchTerm, setVehicleSearchTerm] = useState('');
     const [selectedVehicleData, setSelectedVehicleData] = useState<Vehicle | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [hourlyLabourRate, setHourlyLabourRate] = useState(150);
-
-    /* ── Inventory Parts ── */
-    const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
-    const [loadingParts, setLoadingParts] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedParts, setSelectedParts] = useState<{ inventoryPartId: string, partName: string, partNumber?: string, quantity: number, unitCost: number }[]>([]);
 
     const [form, setForm] = useState({
         workOrderType: '' as string,
         vehicleId: '',
         priority: 'MEDIUM' as Priority,
         faultDescription: '',
-        estimatedLabourHours: '',
-        estimatedTotalCost: '',
         notes: '',
         requiredPhotos: [
             { label: 'Odometer Reading', stage: 'CHECK_IN', isMandatory: true },
@@ -64,10 +52,6 @@ const CreateWorkOrder = () => {
             { label: 'VIN Plate / Chassis Number', stage: 'CHECK_IN', isMandatory: true }
         ] as { label: string, stage: string, isMandatory: boolean }[],
     });
-
-    useEffect(() => {
-        if (branchId) loadInventory();
-    }, [branchId]);
 
     // Debounced backend vehicle search
     useEffect(() => {
@@ -89,37 +73,6 @@ const CreateWorkOrder = () => {
 
         return () => clearTimeout(handler);
     }, [vehicleSearchTerm]);
-
-    // Load hourly rate setting on mount
-    useEffect(() => {
-        const loadRate = async () => {
-            const rate = await getHourlyLabourRate();
-            setHourlyLabourRate(rate);
-        };
-        loadRate();
-    }, []);
-
-    // Auto-calculate estimate
-    useEffect(() => {
-        const hours = Number(form.estimatedLabourHours) || 0;
-        const partsCost = selectedParts.reduce((sum, p) => sum + (p.quantity * p.unitCost), 0);
-        const calculated = (hours * hourlyLabourRate) + partsCost;
-        if (calculated > 0 || selectedParts.length > 0) {
-            setForm(prev => ({ ...prev, estimatedTotalCost: calculated.toString() }));
-        }
-    }, [form.estimatedLabourHours, selectedParts, hourlyLabourRate]);
-
-    const loadInventory = async () => {
-        setLoadingParts(true);
-        try {
-            const data = await getParts({ branchId });
-            setInventoryParts(Array.isArray(data) ? data : []);
-        } catch {
-            // handled
-        } finally {
-            setLoadingParts(false);
-        }
-    };
 
     const handleChange = (field: string, value: string) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -153,25 +106,14 @@ const CreateWorkOrder = () => {
 
         setSubmitting(true);
         try {
-            const partsCost = selectedParts.reduce((sum, p) => sum + (p.quantity * p.unitCost), 0);
             const payload = {
                 workOrderType: form.workOrderType as WorkOrderType,
                 vehicleId: form.vehicleId,
                 branchId,
                 priority: form.priority,
                 faultDescription: form.faultDescription,
-                estimatedLabourHours: form.estimatedLabourHours ? Number(form.estimatedLabourHours) : undefined,
-                estimatedPartsCost: partsCost,
-                estimatedTotalCost: form.estimatedTotalCost ? Number(form.estimatedTotalCost) : undefined,
                 notes: form.notes || undefined,
                 requiredPhotos: form.requiredPhotos,
-                requiredParts: selectedParts.map(p => ({
-                    inventoryPartId: p.inventoryPartId,
-                    partName: p.partName,
-                    partNumber: p.partNumber,
-                    quantity: p.quantity,
-                    unitCost: p.unitCost
-                }))
             };
             const result = await createWorkOrder(payload);
             toast.success(t('common.success'));
@@ -185,7 +127,7 @@ const CreateWorkOrder = () => {
     };
 
     return (
-        <div className="max-w-2xl mx-auto space-y-6 animate-fadeInUp">
+        <div className="max-w-4xl mx-auto space-y-4 animate-fadeInUp">
             {/* Header */}
             <div className="flex items-center gap-3">
                 <button className="btn-icon" onClick={() => navigate(-1)} id="back-btn">
@@ -202,424 +144,234 @@ const CreateWorkOrder = () => {
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="glass-card p-6 space-y-5">
-                {/* Work Order Type */}
-                <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                        {t('workOrders.create.type')} *
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                        {WORK_ORDER_TYPES.map((t_type) => (
-                            <button
-                                key={t_type.value}
-                                type="button"
-                                onClick={() => handleChange('workOrderType', t_type.value)}
-                                className="px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all duration-200 cursor-pointer"
-                                style={{
-                                    background: form.workOrderType === t_type.value ? 'var(--brand-lime)' : 'var(--bg-input)',
-                                    color: form.workOrderType === t_type.value ? '#0A0A0A' : 'var(--text-main)',
-                                    border: `1.5px solid ${form.workOrderType === t_type.value ? 'var(--brand-lime)' : 'var(--border-main)'}`,
-                                    minHeight: '44px',
-                                }}
+            <form onSubmit={handleSubmit} className="glass-card p-5 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {/* Left Column */}
+                    <div className="space-y-4">
+                        {/* Work Order Type */}
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                                {t('workOrders.create.type')} *
+                            </label>
+                            <select
+                                value={form.workOrderType}
+                                onChange={(e) => handleChange('workOrderType', e.target.value)}
+                                className="input-field"
+                                required
                             >
-                                {t_type.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+                                <option value="" disabled hidden>
+                                    {t('workOrders.create.selectType') || 'Select Work Order Type'}
+                                </option>
+                                {WORK_ORDER_TYPES.map((t_type) => (
+                                    <option key={t_type.value} value={t_type.value}>
+                                        {t_type.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
 
-                {/* Vehicle Selection */}
-                <div className="relative">
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                        {t('workOrders.create.vehicle')} *
-                    </label>
-                    {form.vehicleId && selectedVehicleData ? (
-                        <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm">
-                            <div className="flex-1">
-                                <p className="text-sm font-semibold">
-                                    {selectedVehicleData.basicDetails?.make} {selectedVehicleData.basicDetails?.model} {selectedVehicleData.basicDetails?.year}
-                                </p>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                    <p className="text-xs opacity-50 font-mono tracking-wider">
-                                        {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
-                                    </p>
-                                    {selectedVehicleData.status === 'ACTIVE — RENTED' && (
-                                        <span className="text-[10px] bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                            Rented
-                                        </span>
-                                    )}
-                                </div>
-                                {selectedVehicleData.currentDriver ? (
-                                    <div className="mt-3 p-2 bg-white/5 rounded-lg border border-white/5 flex items-center gap-2">
-                                        <div className="w-6 h-6 rounded-full bg-[var(--brand-lime)] text-black flex items-center justify-center text-[10px] font-bold">
-                                            {selectedVehicleData.currentDriver.personalInfo?.fullName?.charAt(0) || '?'}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-[10px] opacity-40 uppercase font-bold tracking-widest leading-none mb-1">Assigned Driver</p>
-                                            <p className="text-xs font-bold leading-none truncate">
-                                                {selectedVehicleData.currentDriver.personalInfo?.fullName || 'N/A'} 
-                                                <span className="ml-2 opacity-40 font-mono text-[10px]">{selectedVehicleData.currentDriver.driverId}</span>
+                        {/* Vehicle Selection */}
+                        <div className="relative">
+                            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                                {t('workOrders.create.vehicle')} *
+                            </label>
+                            {form.vehicleId && selectedVehicleData ? (
+                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-semibold truncate">
+                                            {selectedVehicleData.basicDetails?.make} {selectedVehicleData.basicDetails?.model} {selectedVehicleData.basicDetails?.year}
+                                        </p>
+                                        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                                            <p className="text-[10px] opacity-50 font-mono tracking-wider">
+                                                {selectedVehicleData.basicDetails?.vin || 'No VIN provided'}
                                             </p>
-                                            {selectedVehicleData.currentDriver.personalInfo?.phone && (
-                                                <p className="text-[10px] opacity-60 mt-1 font-mono">{selectedVehicleData.currentDriver.personalInfo.phone}</p>
+                                            {selectedVehicleData.status === 'ACTIVE — RENTED' && (
+                                                <span className="text-[9px] bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] px-1 rounded font-bold uppercase tracking-wider">
+                                                    Rented
+                                                </span>
+                                            )}
+                                            {selectedVehicleData.currentDriver && (
+                                                <p className="text-[10px] opacity-60">
+                                                    • Driver: <span className="font-semibold text-[var(--text-main)]">{selectedVehicleData.currentDriver.personalInfo?.fullName}</span>
+                                                </p>
                                             )}
                                         </div>
                                     </div>
-                                ) : selectedVehicleData.status === 'ACTIVE — RENTED' && (
-                                    <div className="mt-3 p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
-                                        <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider">
-                                            ⚠️ Rented vehicle - No driver linked
-                                        </p>
+                                    <button
+                                        type="button"
+                                        onClick={handleVehicleClear}
+                                        className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="relative">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" size={14} />
+                                        <input
+                                            type="text"
+                                            placeholder="Search vehicle by VIN, make, or model..."
+                                            className="input-field pl-9 text-xs"
+                                            value={vehicleSearchTerm}
+                                            onChange={(e) => setVehicleSearchTerm(e.target.value)}
+                                        />
                                     </div>
-                                )}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleVehicleClear}
-                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                            >
-                                <X size={14} />
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="relative">
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" size={16} />
-                                <input
-                                    type="text"
-                                    placeholder="Search vehicle by VIN, make, or model..."
-                                    className="input-field pl-10"
-                                    value={vehicleSearchTerm}
-                                    onChange={(e) => setVehicleSearchTerm(e.target.value)}
-                                />
-                            </div>
-                            
-                            {vehicleSearchTerm.length > 1 && (
-                                <div className="absolute z-10 left-0 right-0 mt-1 glass-card shadow-xl max-h-60 overflow-y-auto border-[var(--border-main)] py-2">
-                                    {loadingVehicles ? (
-                                        <div className="p-8 text-center opacity-40">
-                                            <Loader2 size={24} className="animate-spin mx-auto mb-2" />
-                                            <p className="text-xs font-semibold">Searching vehicles...</p>
-                                        </div>
-                                    ) : vehicles.length === 0 ? (
-                                        <div className="p-8 text-center opacity-40">
-                                            <Search size={24} className="mx-auto mb-2" />
-                                            <p className="text-xs font-semibold">No vehicles found</p>
-                                        </div>
-                                    ) : (
-                                        vehicles.map(v => (
-                                            <button
-                                                key={v._id}
-                                                type="button"
-                                                className="w-full px-4 py-3 text-left hover:bg-[var(--brand-lime-alpha)] flex items-center justify-between group transition-colors border-b border-[var(--border-main)]/30 last:border-0"
-                                                onClick={() => handleVehicleSelect(v)}
-                                            >
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2 mb-0.5">
-                                                        <p className="text-sm font-semibold truncate leading-tight">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
-                                                        {v.status === 'ACTIVE — RENTED' && (
-                                                            <span className="text-[8px] bg-[var(--brand-lime)] text-black px-1 rounded font-bold uppercase">Rented</span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-[10px] opacity-60 font-mono tracking-widest uppercase">{v.basicDetails?.vin || 'No VIN'}</p>
-                                                    {v.currentDriver ? (
-                                                        <div className="mt-1.5 flex flex-col gap-0.5">
-                                                            <p className="text-[10px] text-[var(--brand-lime)] font-bold flex items-center gap-1">
-                                                                <div className="w-1 h-1 rounded-full bg-current" />
-                                                                Driver: {v.currentDriver.personalInfo?.fullName || 'N/A'}
-                                                            </p>
-                                                            {v.currentDriver.personalInfo?.phone && (
-                                                                <p className="text-[9px] opacity-50 font-mono ml-2">{v.currentDriver.personalInfo.phone}</p>
-                                                            )}
-                                                        </div>
-                                                    ) : v.status === 'ACTIVE — RENTED' && (
-                                                        <p className="text-[9px] text-orange-400 font-bold uppercase mt-1">No driver linked</p>
-                                                    )}
+                                    
+                                    {vehicleSearchTerm.length > 1 && (
+                                        <div className="absolute z-10 left-0 right-0 mt-1 glass-card shadow-xl max-h-40 overflow-y-auto border-[var(--border-main)] py-1.5">
+                                            {loadingVehicles ? (
+                                                <div className="p-4 text-center opacity-40">
+                                                    <Loader2 size={18} className="animate-spin mx-auto mb-1" />
+                                                    <p className="text-[10px] font-semibold">Searching...</p>
                                                 </div>
-                                            </button>
-                                        ))
+                                            ) : vehicles.length === 0 ? (
+                                                <div className="p-4 text-center opacity-40">
+                                                    <Search size={18} className="mx-auto mb-1" />
+                                                    <p className="text-[10px] font-semibold">No vehicles found</p>
+                                                </div>
+                                            ) : (
+                                                vehicles.map(v => (
+                                                    <button
+                                                        key={v._id}
+                                                        type="button"
+                                                        className="w-full px-3 py-2 text-left hover:bg-[var(--brand-lime-alpha)] flex items-center justify-between group transition-colors border-b border-[var(--border-main)]/30 last:border-0"
+                                                        onClick={() => handleVehicleSelect(v)}
+                                                    >
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-1.5 mb-0.5">
+                                                                <p className="text-xs font-semibold truncate leading-tight">{v.basicDetails?.make} {v.basicDetails?.model} {v.basicDetails?.year}</p>
+                                                                {v.status === 'ACTIVE — RENTED' && (
+                                                                    <span className="text-[8px] bg-[var(--brand-lime)] text-black px-1 rounded font-bold uppercase">Rented</span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-[9px] opacity-60 font-mono tracking-widest uppercase">{v.basicDetails?.vin || 'No VIN'}</p>
+                                                        </div>
+                                                    </button>
+                                                ))
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             )}
                         </div>
-                    )}
-                </div>
 
-                {/* Priority */}
-                <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                        {t('workOrders.create.priority')}
-                    </label>
-                    <div className="flex gap-2">
-                        {PRIORITY_OPTIONS.map((p) => (
-                            <button
-                                key={p.value}
-                                type="button"
-                                onClick={() => handleChange('priority', p.value)}
-                                className="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold text-center transition-all duration-200 cursor-pointer"
-                                style={{
-                                    background: form.priority === p.value ? p.color + '22' : 'var(--bg-input)',
-                                    color: form.priority === p.value ? p.color : 'var(--text-muted)',
-                                    border: `1.5px solid ${form.priority === p.value ? p.color : 'var(--border-main)'}`,
-                                    minHeight: '44px',
-                                }}
-                            >
-                                {p.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Fault Description */}
-                <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                        {t('workOrders.create.fault')} *
-                    </label>
-                    <textarea
-                        value={form.faultDescription}
-                        onChange={(e) => handleChange('faultDescription', e.target.value)}
-                        placeholder={t('workOrders.create.faultPlaceholder')}
-                        rows={4}
-                        className="input-field resize-none"
-                        id="fault-description"
-                        required
-                        style={{ minHeight: '100px' }}
-                    />
-                </div>
-
-                {/* Estimates */}
-                <div className="grid grid-cols-3 gap-4">
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                            {t('workOrders.create.labourHrs')}
-                        </label>
-                        <input
-                            type="number"
-                            value={form.estimatedLabourHours}
-                            onChange={(e) => handleChange('estimatedLabourHours', e.target.value)}
-                            placeholder="0"
-                            className="input-field"
-                            min="0"
-                            step="0.5"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                            {t('workOrders.create.partsCost') || "Parts Estimate"}
-                        </label>
-                        <div className="input-field bg-[var(--bg-input)]/50 cursor-not-allowed flex items-center font-bold">
-                            ${selectedParts.reduce((sum, p) => sum + (p.quantity * p.unitCost), 0).toFixed(2)}
+                        {/* Priority */}
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                                {t('workOrders.create.priority')}
+                            </label>
+                            <div className="flex gap-1.5">
+                                {PRIORITY_OPTIONS.map((p) => (
+                                    <button
+                                        key={p.value}
+                                        type="button"
+                                        onClick={() => handleChange('priority', p.value)}
+                                        className="flex-1 px-2 py-2 rounded-xl text-xs font-semibold text-center transition-all duration-200 cursor-pointer"
+                                        style={{
+                                            background: form.priority === p.value ? p.color + '22' : 'var(--bg-input)',
+                                            color: form.priority === p.value ? p.color : 'var(--text-muted)',
+                                            border: `1.5px solid ${form.priority === p.value ? p.color : 'var(--border-main)'}`,
+                                            minHeight: '38px',
+                                        }}
+                                    >
+                                        {p.label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                            {t('workOrders.create.totalCost') || "Total Estimate"}
-                        </label>
-                        <input
-                            type="number"
-                            value={form.estimatedTotalCost}
-                            onChange={(e) => handleChange('estimatedTotalCost', e.target.value)}
-                            placeholder="0.00"
-                            className="input-field"
-                            min="0"
-                            step="0.01"
-                        />
-                    </div>
-                </div>
 
-                {/* Required Parts Section */}
-                <div className="space-y-4 pt-4 border-t border-[var(--border-main)]/50">
-                    <div className="flex items-center justify-between">
-                        <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                            {t('workOrders.create.requiredParts') || 'Required Parts (Estimate)'}
-                        </label>
-                    </div>
-
-                    {/* Part Search Dropdown */}
-                    <div className="relative">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" size={16} />
-                            <input
-                                type="text"
-                                placeholder="Search inventory (e.g. Brake Pad)..."
-                                className="input-field pl-10"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
+                        {/* Notes */}
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                                {t('workOrders.create.notes')}
+                            </label>
+                            <textarea
+                                value={form.notes}
+                                onChange={(e) => handleChange('notes', e.target.value)}
+                                placeholder={t('workOrders.create.notesPlaceholder')}
+                                rows={2}
+                                className="input-field resize-none text-xs"
+                                style={{ minHeight: '60px' }}
                             />
                         </div>
-                        
-                        {searchTerm.length > 1 && (
-                            <div className="absolute z-10 left-0 right-0 mt-1 glass-card shadow-xl max-h-60 overflow-y-auto border-[var(--border-main)] py-2">
-                                {loadingParts ? (
-                                    <div className="p-6 text-center space-y-2">
-                                        <Loader2 size={24} className="animate-spin mx-auto opacity-20" />
-                                        <p className="text-[10px] uppercase font-bold tracking-widest opacity-40">Fetching Inventory...</p>
-                                    </div>
-                                ) : (
-                                    (() => {
-                                        const filtered = inventoryParts.filter(p => 
-                                            (p.partName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                                             p.partNumber?.toLowerCase().includes(searchTerm.toLowerCase()))
-                                        );
-                                        
-                                        if (filtered.length === 0) {
-                                            return (
-                                                <div className="p-8 text-center opacity-40">
-                                                    <Package size={24} className="mx-auto mb-2" />
-                                                    <p className="text-xs font-semibold">No parts found for "{searchTerm}"</p>
-                                                </div>
-                                            );
-                                        }
-
-                                        return filtered.map(p => (
-                                            <button
-                                                key={p._id}
-                                                type="button"
-                                                className="w-full px-4 py-3 text-left hover:bg-[var(--brand-lime-alpha)] flex items-center justify-between group transition-colors border-b border-[var(--border-main)]/30 last:border-0"
-                                                onClick={() => {
-                                                    if (!selectedParts.some(sp => sp.inventoryPartId === p._id)) {
-                                                        setSelectedParts(prev => [...prev, {
-                                                            inventoryPartId: p._id,
-                                                            partName: p.partName,
-                                                            partNumber: p.partNumber,
-                                                            quantity: 1,
-                                                            unitCost: p.unitCost
-                                                        }]);
-                                                    }
-                                                    setSearchTerm('');
-                                                }}
-                                            >
-                                                <div className="flex-1 min-w-0 pr-4">
-                                                    <p className="text-sm font-semibold truncate leading-tight mb-0.5">{p.partName}</p>
-                                                    <p className="text-[10px] opacity-40 font-mono tracking-tighter uppercase">{p.partNumber} • {p.category}</p>
-                                                </div>
-                                                <div className="text-right flex-shrink-0">
-                                                    <p className="text-sm font-bold text-[var(--brand-lime)] leading-none mb-1">${p.unitCost}</p>
-                                                    <p className="text-[10px] font-medium opacity-60 bg-[var(--bg-input)] px-1.5 py-0.5 rounded-md inline-block">{p.quantityOnHand} Left</p>
-                                                </div>
-                                            </button>
-                                        ));
-                                    })()
-                                )}
-                            </div>
-                        )}
                     </div>
 
-                    {/* Selected Parts List */}
-                    <div className="space-y-2">
-                        {selectedParts.length === 0 ? (
-                            <div className="p-8 rounded-2xl border-2 border-dashed border-[var(--border-main)] flex flex-col items-center justify-center opacity-20">
-                                <Package size={32} className="mb-2" />
-                                <p className="text-xs font-medium">No parts selected</p>
-                            </div>
-                        ) : (
-                            selectedParts.map((p, idx) => (
-                                <div key={p.inventoryPartId} className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm">
-                                    <div className="flex-1">
-                                        <p className="text-sm font-semibold">{p.partName}</p>
-                                        <p className="text-xs opacity-50 font-mono">${p.unitCost} / unit</p>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-[var(--bg-card)] rounded-lg p-1 border border-[var(--border-main)]">
-                                            <button type="button" onClick={() => {
-                                                setSelectedParts(prev => prev.map((sp, i) => i === idx ? { ...sp, quantity: Math.max(1, sp.quantity - 1) } : sp));
-                                            }} className="p-1 hover:bg-[var(--brand-lime-alpha)] rounded-md transition-colors font-bold w-6">-</button>
-                                            <span className="text-sm font-mono font-bold w-6 text-center">{p.quantity}</span>
-                                            <button type="button" onClick={() => {
-                                                setSelectedParts(prev => prev.map((sp, i) => i === idx ? { ...sp, quantity: sp.quantity + 1 } : sp));
-                                            }} className="p-1 hover:bg-[var(--brand-lime-alpha)] rounded-md transition-colors font-bold w-6">+</button>
-                                        </div>
-                                        
-                                        <div className="text-right min-w-[70px]">
-                                            <p className="text-sm font-bold">${(p.quantity * p.unitCost).toFixed(2)}</p>
-                                        </div>
+                    {/* Right Column */}
+                    <div className="space-y-4">
+                        {/* Fault Description */}
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                                {t('workOrders.create.fault')} *
+                            </label>
+                            <textarea
+                                value={form.faultDescription}
+                                onChange={(e) => handleChange('faultDescription', e.target.value)}
+                                placeholder={t('workOrders.create.faultPlaceholder')}
+                                rows={4}
+                                className="input-field resize-none text-xs"
+                                id="fault-description"
+                                required
+                                style={{ minHeight: '94px' }}
+                            />
+                        </div>
 
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedParts(prev => prev.filter((_, i) => i !== idx))}
-                                            className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-
-                {/* Notes */}
-                <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
-                        {t('workOrders.create.notes')}
-                    </label>
-                    <textarea
-                        value={form.notes}
-                        onChange={(e) => handleChange('notes', e.target.value)}
-                        placeholder={t('workOrders.create.notesPlaceholder')}
-                        rows={2}
-                        className="input-field resize-none"
-                    />
-                </div>
-                
-                {/* Required Photos Configuration */}
-                <div className="space-y-4 pt-2">
-                    <div className="flex items-center justify-between">
-                        <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                            {t('workOrders.create.requiredPhotos') || 'Required Photos (QC)'}
-                        </label>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const label = window.prompt('Enter photo requirement label (e.g. Engine Bay):');
-                                if (label) {
-                                    setForm(prev => ({
-                                        ...prev,
-                                        requiredPhotos: [...prev.requiredPhotos, { label, stage: 'QC', isMandatory: true }]
-                                    }));
-                                }
-                            }}
-                            className="text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:opacity-80 flex items-center gap-1"
-                        >
-                            <PlusCircle size={12} /> Add Requirement
-                        </button>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-2">
-                        {form.requiredPhotos.map((rp, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm transition-all hover:bg-[var(--bg-card)]">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-1.5 rounded-lg bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)]">
-                                        <Camera size={14} />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-semibold">{rp.label}</p>
-                                        <p className="text-[10px] uppercase tracking-tighter opacity-50 font-mono">{rp.stage.replace('_', ' ')} • {rp.isMandatory ? 'Mandatory' : 'Optional'}</p>
-                                    </div>
-                                </div>
+                        {/* Required Photos Configuration */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="block text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                                    {t('workOrders.create.requiredPhotos') || 'Required Photos (QC)'}
+                                </label>
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setForm(prev => ({
-                                            ...prev,
-                                            requiredPhotos: prev.requiredPhotos.filter((_, i) => i !== idx)
-                                        }));
+                                        const label = window.prompt('Enter photo requirement label (e.g. Engine Bay):');
+                                        if (label) {
+                                            setForm(prev => ({
+                                                ...prev,
+                                                requiredPhotos: [...prev.requiredPhotos, { label, stage: 'QC', isMandatory: true }]
+                                            }));
+                                        }
                                     }}
-                                    className="p-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10 rounded-lg"
+                                    className="text-[9px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:opacity-80 flex items-center gap-1"
                                 >
-                                    <X size={14} />
+                                    <PlusCircle size={10} /> Add Requirement
                                 </button>
                             </div>
-                        ))}
+                            
+                            <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                                {form.requiredPhotos.map((rp, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm transition-all hover:bg-[var(--bg-card)]">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="p-1 rounded bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] flex-shrink-0">
+                                                <Camera size={12} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-semibold truncate leading-tight">{rp.label}</p>
+                                                <p className="text-[8px] uppercase tracking-tighter opacity-50 font-mono">{rp.stage.replace('_', ' ')} • {rp.isMandatory ? 'Mandatory' : 'Optional'}</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setForm(prev => ({
+                                                    ...prev,
+                                                    requiredPhotos: prev.requiredPhotos.filter((_, i) => i !== idx)
+                                                }));
+                                            }}
+                                            className="p-1 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10 rounded-lg flex-shrink-0"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
-                    <p className="text-[10px] italic" style={{ color: 'var(--text-dim)' }}>
-                        * Technicians will be required to upload these specific photos before the vehicle can be released.
-                    </p>
                 </div>
 
                 {/* Submit */}
-                <div className="flex gap-3 pt-2">
+                <div className="flex gap-3 pt-3 border-t border-[var(--border-main)]/30">
                     <button
                         type="button"
                         className="btn-secondary flex-1"
@@ -635,12 +387,12 @@ const CreateWorkOrder = () => {
                     >
                         {submitting ? (
                             <>
-                                <Loader2 size={18} className="animate-spin" />
+                                <Loader2 size={16} className="animate-spin" />
                                 {t('workOrders.create.creating')}
                             </>
                         ) : (
                             <>
-                                <PlusCircle size={18} />
+                                <PlusCircle size={16} />
                                 {t('workOrders.create.submit')}
                             </>
                         )}

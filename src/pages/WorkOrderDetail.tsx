@@ -10,9 +10,10 @@ import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
-    getHourlyLabourRate,
+    getHourlyLabourRate, getTaxProfiles,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
+    type TaxProfile,
 } from '../services/workOrderService';
 import { getUserId, getUser } from '../utils/auth';
 import { getParts, type InventoryPart } from '../services/inventoryService';

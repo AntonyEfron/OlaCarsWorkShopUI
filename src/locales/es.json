@@ -47,6 +47,7 @@
             "title": "Crear Orden de Trabajo",
             "subtitle": "La nueva orden se creará en estado BORRADOR",
             "type": "Tipo de Orden",
+            "selectType": "Seleccione el tipo de orden de trabajo",
             "vehicle": "Vehículo",
             "priority": "Prioridad",
             "fault": "Descripción del Fallo",

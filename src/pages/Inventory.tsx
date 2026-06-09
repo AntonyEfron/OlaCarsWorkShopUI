@@ -13,6 +13,7 @@ import {
 } from '../services/inventoryService';
 import { createProcurementRequest } from '../services/workshopProcurementService';
 import { getSuppliers, type Supplier } from '../services/supplierService';
+import { getAccountingCodes, getTaxProfiles } from '../services/serviceBillService';
 import { getUser, getUserRole, getBranchId } from '../utils/auth';
 import * as XLSX from 'xlsx';
 
@@ -51,10 +52,26 @@ const Inventory = () => {
   const [bulkSuccess, setBulkSuccess] = useState<string | null>(null);
   const [restockQty, setRestockQty] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [accountingCodes, setAccountingCodes] = useState<any[]>([]);
+  const [taxProfiles, setTaxProfiles] = useState<any[]>([]);
 
   useEffect(() => {
     loadParts();
+    loadLookupData();
   }, [categoryFilter, branchId]);
+
+  const loadLookupData = async () => {
+    try {
+      const [codes, taxes] = await Promise.all([
+        getAccountingCodes(),
+        getTaxProfiles()
+      ]);
+      setAccountingCodes(codes || []);
+      setTaxProfiles(taxes || []);
+    } catch (err) {
+      // Non-critical — bulk upload will still work with backend defaults
+    }
+  };
 
   const loadParts = async () => {
     setLoading(true);
@@ -110,7 +127,10 @@ const Inventory = () => {
           unitCost: 12.99,
           quantityOnHand: 50,
           reorderLevel: 10,
-          description: 'High-performance platinum spark plug'
+          description: 'High-performance platinum spark plug',
+          purchaseAccountCode: 'CGS0001',
+          incomeAccountCode: 'IN0008',
+          taxProfileName: 'ITBMS'
         },
         {
           partName: 'Engine Oil 5W-30',
@@ -120,7 +140,10 @@ const Inventory = () => {
           unitCost: 35.50,
           quantityOnHand: 20,
           reorderLevel: 5,
-          description: 'Synthetic engine oil 4L container'
+          description: 'Synthetic engine oil 4L container',
+          purchaseAccountCode: 'CGS0001',
+          incomeAccountCode: 'IN0008',
+          taxProfileName: 'ITBMS'
         }
       ];
 
@@ -154,7 +177,29 @@ const Inventory = () => {
             errors.push(`Row ${index + 2}: Missing required partName or partNumber`);
             return null;
           }
-          return {
+
+          // Resolve accounting codes and tax profile by code/name
+          let purchaseAccountId = '';
+          let incomeAccountId = '';
+          let taxId = '';
+
+          if (row.purchaseAccountCode) {
+            const match = accountingCodes.find((c: any) => c.code === String(row.purchaseAccountCode).trim());
+            if (match) purchaseAccountId = match._id;
+            else errors.push(`Row ${index + 2}: Purchase account code "${row.purchaseAccountCode}" not found`);
+          }
+          if (row.incomeAccountCode) {
+            const match = accountingCodes.find((c: any) => c.code === String(row.incomeAccountCode).trim());
+            if (match) incomeAccountId = match._id;
+            else errors.push(`Row ${index + 2}: Income account code "${row.incomeAccountCode}" not found`);
+          }
+          if (row.taxProfileName) {
+            const match = taxProfiles.find((t: any) => t.name === String(row.taxProfileName).trim());
+            if (match) taxId = match._id;
+            else errors.push(`Row ${index + 2}: Tax profile "${row.taxProfileName}" not found`);
+          }
+
+          const part: any = {
             partName: String(row.partName),
             partNumber: String(row.partNumber),
             category: row.category ? String(row.category) : 'Other',
@@ -164,6 +209,12 @@ const Inventory = () => {
             reorderLevel: Number(row.reorderLevel) || 5,
             description: row.description ? String(row.description) : ''
           };
+
+          if (purchaseAccountId) part.purchaseAccountId = purchaseAccountId;
+          if (incomeAccountId) part.incomeAccountId = incomeAccountId;
+          if (taxId) part.taxId = taxId;
+
+          return part;
         }).filter(p => p !== null);
 
         setBulkErrors(errors);
@@ -485,7 +536,7 @@ const Inventory = () => {
                 <div className="space-y-1">
                   <p className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Choose Excel spreadsheet</p>
                   <p className="text-xs text-[var(--text-muted)]">Supports .xlsx and .xls formats</p>
-                  <p className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider font-semibold pt-1">Required headers: partName, partNumber</p>
+                  <p className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider font-semibold pt-1">Required: partName, partNumber &bull; Optional: category, unit, unitCost, reorderLevel, description, purchaseAccountCode, incomeAccountCode, taxProfileName</p>
                 </div>
                 <input
                   type="file"
@@ -521,7 +572,9 @@ const Inventory = () => {
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Part Name</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Part Number</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Category</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60 text-right">Price</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60 text-right">Qty</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Accounts</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -532,7 +585,15 @@ const Inventory = () => {
                             <td className="p-3">
                               <span className="px-2 py-0.5 rounded bg-[var(--bg-input)] text-[10px] font-medium border border-[var(--border-main)]">{part.category}</span>
                             </td>
+                            <td className="p-3 text-right font-mono">${part.unitCost?.toFixed(2) || '0.00'}</td>
                             <td className="p-3 text-right font-mono font-bold text-[var(--brand-lime)]">{part.quantityOnHand}</td>
+                            <td className="p-3">
+                              {part.purchaseAccountId || part.incomeAccountId || part.taxId ? (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[10px] font-bold">Custom</span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded bg-[var(--bg-input)] text-[10px] font-medium opacity-50">Default</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

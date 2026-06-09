@@ -64,6 +64,7 @@
             "title": "Create Work Order",
             "subtitle": "New work order will be created in DRAFT status",
             "type": "Work Order Type",
+            "selectType": "Select Work Order Type",
             "vehicle": "Vehicle",
             "priority": "Priority",
             "fault": "Fault Description",

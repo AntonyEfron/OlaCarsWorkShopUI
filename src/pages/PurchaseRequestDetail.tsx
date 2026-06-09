@@ -115,6 +115,8 @@ const PurchaseRequestDetail = () => {
   const unitPrice = request.merchandiserPrice || request.part?.unitCost || 0;
   const deficitQty = Math.max(0, requestedQty - receivedQuantity);
   const deficitAmt = deficitQty * unitPrice;
+  const surplusQty = Math.max(0, receivedQuantity - requestedQty);
+  const surplusAmt = surplusQty * unitPrice;
   const isReceived = request.status === 'RECEIVED';
   const canAddInventory = isReceived && !request.inventoryAdded;
 
@@ -238,10 +240,12 @@ const PurchaseRequestDetail = () => {
               <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Received</p>
               <p className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>{receivedQuantity}</p>
             </div>
-            <div className={`glass-card p-4 text-center ${deficitQty > 0 ? 'border-red-500/30' : 'border-green-500/30'}`} style={{ borderWidth: '1px' }}>
-              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Deficit</p>
-              <p className={`text-xl font-bold font-mono ${deficitQty > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                {deficitQty}
+            <div className={`glass-card p-4 text-center ${deficitQty > 0 ? 'border-red-500/30' : surplusQty > 0 ? 'border-green-500/30' : 'border-zinc-500/30'}`} style={{ borderWidth: '1px' }}>
+              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+                {deficitQty > 0 ? 'Deficit' : surplusQty > 0 ? 'Surplus' : 'Difference'}
+              </p>
+              <p className={`text-xl font-bold font-mono ${deficitQty > 0 ? 'text-red-400' : surplusQty > 0 ? 'text-green-400' : 'text-zinc-400'}`}>
+                {deficitQty > 0 ? deficitQty : surplusQty > 0 ? surplusQty : 0}
               </p>
             </div>
           </div>
@@ -250,6 +254,13 @@ const PurchaseRequestDetail = () => {
             <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/5 border border-red-500/20 text-red-400 text-xs font-semibold">
               <AlertTriangle size={14} />
               Deficit of {deficitQty} unit(s) — estimated loss: ${deficitAmt.toFixed(2)}
+            </div>
+          )}
+
+          {surplusQty > 0 && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-green-500/5 border border-green-500/20 text-green-400 text-xs font-semibold">
+              <Package size={14} />
+              Surplus of {surplusQty} unit(s) — estimated gain: ${surplusAmt.toFixed(2)}
             </div>
           )}
 
@@ -286,18 +297,80 @@ const PurchaseRequestDetail = () => {
               <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Received</p>
               <p className="text-lg font-bold font-mono text-green-400">{request.receivedQuantity ?? 0}</p>
             </div>
-            <div className={`glass-card p-4 text-center ${(request.deficitQuantity ?? 0) > 0 ? 'border-red-500/20' : 'border-green-500/20'}`} style={{ borderWidth: '1px' }}>
-              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Deficit Qty</p>
-              <p className={`text-lg font-bold font-mono ${(request.deficitQuantity ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                {request.deficitQuantity ?? 0}
+            <div className={`glass-card p-4 text-center ${(request.deficitQuantity ?? 0) > 0 ? 'border-red-500/20' : (request.surplusQuantity ?? 0) > 0 ? 'border-green-500/20' : 'border-zinc-500/20'}`} style={{ borderWidth: '1px' }}>
+              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+                {(request.deficitQuantity ?? 0) > 0 ? 'Deficit Qty' : (request.surplusQuantity ?? 0) > 0 ? 'Surplus Qty' : 'Deficit Qty'}
+              </p>
+              <p className={`text-lg font-bold font-mono ${(request.deficitQuantity ?? 0) > 0 ? 'text-red-400' : (request.surplusQuantity ?? 0) > 0 ? 'text-green-400' : 'text-zinc-400'}`}>
+                {(request.deficitQuantity ?? 0) > 0 ? request.deficitQuantity : (request.surplusQuantity ?? 0) > 0 ? request.surplusQuantity : 0}
               </p>
             </div>
-            <div className={`glass-card p-4 text-center ${(request.deficitAmount ?? 0) > 0 ? 'border-red-500/20' : 'border-green-500/20'}`} style={{ borderWidth: '1px' }}>
-              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Deficit Amount</p>
-              <p className={`text-lg font-bold font-mono ${(request.deficitAmount ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                ${(request.deficitAmount ?? 0).toFixed(2)}
+            <div className={`glass-card p-4 text-center ${(request.deficitQuantity ?? 0) > 0 ? 'border-red-500/20' : (request.surplusQuantity ?? 0) > 0 ? 'border-green-500/20' : 'border-zinc-500/20'}`} style={{ borderWidth: '1px' }}>
+              <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+                {(request.deficitQuantity ?? 0) > 0 ? 'Deficit Amount' : (request.surplusQuantity ?? 0) > 0 ? 'Surplus Amount' : 'Deficit Amount'}
+              </p>
+              <p className={`text-lg font-bold font-mono ${(request.deficitQuantity ?? 0) > 0 ? 'text-red-400' : (request.surplusQuantity ?? 0) > 0 ? 'text-green-400' : 'text-zinc-400'}`}>
+                ${((request.deficitQuantity ?? 0) > 0 ? (request.deficitAmount ?? 0) : (request.surplusAmount ?? 0) > 0 ? (request.surplusAmount ?? 0) : 0).toFixed(2)}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {request.inventoryAdded && request.ledgerEntries && request.ledgerEntries.length > 0 && (
+        <div className="glass-card p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--brand-lime)' }}>
+              <Landmark size={14} /> Ledger Transactions
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded bg-zinc-800 text-zinc-400">
+              Double-Entry Journal
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800" style={{ color: 'var(--text-muted)' }}>
+                  <th className="py-2.5 font-bold uppercase tracking-wider">Account</th>
+                  <th className="py-2.5 font-bold uppercase tracking-wider">Type</th>
+                  <th className="py-2.5 font-bold uppercase tracking-wider">Description</th>
+                  <th className="py-2.5 font-bold uppercase tracking-wider text-right">Debit</th>
+                  <th className="py-2.5 font-bold uppercase tracking-wider text-right">Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {request.ledgerEntries.map((entry: any) => (
+                  <tr key={entry._id} className="border-b border-zinc-900 hover:bg-white/5 transition-colors">
+                    <td className="py-3 font-semibold">
+                      <div style={{ color: 'var(--text-main)' }}>{entry.accountingCode?.code}</div>
+                      <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{entry.accountingCode?.name}</div>
+                    </td>
+                    <td className="py-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        entry.type === 'DEBIT' ? 'bg-blue-500/10 text-blue-400' : 'bg-orange-500/10 text-orange-400'
+                      }`}>
+                        {entry.type}
+                      </span>
+                    </td>
+                    <td className="py-3" style={{ color: 'var(--text-main)' }}>
+                      {entry.description}
+                      {entry.taxInfo?.taxApplied && (
+                        <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          Tax Applied: {entry.taxInfo.taxApplied.name} ({entry.taxInfo.taxApplied.rate}%) - {entry.taxInfo.isTaxInclusive ? 'Inclusive' : 'Exclusive'} (${entry.taxInfo.taxAmount.toFixed(2)})
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 text-right font-mono font-bold" style={{ color: entry.type === 'DEBIT' ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                      {entry.type === 'DEBIT' ? `$${entry.amount.toFixed(2)}` : '—'}
+                    </td>
+                    <td className="py-3 text-right font-mono font-bold" style={{ color: entry.type === 'CREDIT' ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                      {entry.type === 'CREDIT' ? `$${entry.amount.toFixed(2)}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
