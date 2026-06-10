@@ -13,6 +13,7 @@ export interface Invoice {
     invoiceNumber: string;
     invoiceType: 'RENTAL' | 'WORKSHOP';
     driver: any;
+    customer?: any;
     vehicle: any;
     serviceBill?: any;
     weekNumber?: number;

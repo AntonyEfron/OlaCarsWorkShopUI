@@ -381,8 +381,8 @@ export const approveBill = async (billId: string): Promise<any> => {
     return response.data.data || response.data;
 };
 
-export const markBillPaid = async (billId: string, paymentMethod: string = 'Cash', paymentReference?: string): Promise<any> => {
-    const response = await api.put(`/api/service-bills/${billId}/pay`, { paymentMethod, paymentReference });
+export const markBillPaid = async (billId: string, amount: number, paymentMethod: string = 'Cash', paymentReference?: string): Promise<any> => {
+    const response = await api.post(`/api/service-bills/${billId}/payments`, { amount, paymentMethod, paymentReference });
     return response.data.data || response.data;
 };
 

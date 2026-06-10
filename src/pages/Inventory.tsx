@@ -124,10 +124,11 @@ const Inventory = () => {
           partNumber: 'SP-1002-PT',
           category: 'Electrical',
           unit: 'piece',
-          unitCost: 12.99,
+          sellingPrice: 12.99,
           quantityOnHand: 50,
           reorderLevel: 10,
           description: 'High-performance platinum spark plug',
+          inventoryAccountCode: 'AST0001',
           purchaseAccountCode: 'CGS0001',
           incomeAccountCode: 'IN0008',
           taxProfileName: 'ITBMS'
@@ -137,10 +138,11 @@ const Inventory = () => {
           partNumber: 'EO-5W30-4L',
           category: 'Fluids',
           unit: 'litre',
-          unitCost: 35.50,
+          sellingPrice: 35.50,
           quantityOnHand: 20,
           reorderLevel: 5,
           description: 'Synthetic engine oil 4L container',
+          inventoryAccountCode: 'AST0001',
           purchaseAccountCode: 'CGS0001',
           incomeAccountCode: 'IN0008',
           taxProfileName: 'ITBMS'
@@ -179,10 +181,16 @@ const Inventory = () => {
           }
 
           // Resolve accounting codes and tax profile by code/name
+          let inventoryAccountId = '';
           let purchaseAccountId = '';
           let incomeAccountId = '';
           let taxId = '';
 
+          if (row.inventoryAccountCode) {
+            const match = accountingCodes.find((c: any) => c.code === String(row.inventoryAccountCode).trim());
+            if (match) inventoryAccountId = match._id;
+            else errors.push(`Row ${index + 2}: Inventory account code "${row.inventoryAccountCode}" not found`);
+          }
           if (row.purchaseAccountCode) {
             const match = accountingCodes.find((c: any) => c.code === String(row.purchaseAccountCode).trim());
             if (match) purchaseAccountId = match._id;
@@ -204,12 +212,13 @@ const Inventory = () => {
             partNumber: String(row.partNumber),
             category: row.category ? String(row.category) : 'Other',
             unit: row.unit ? String(row.unit) : 'piece',
-            unitCost: Number(row.unitCost) || 0,
+            unitCost: Number(row.sellingPrice ?? row.unitCost) || 0,
             quantityOnHand: Number(row.quantityOnHand) || 0,
             reorderLevel: Number(row.reorderLevel) || 5,
             description: row.description ? String(row.description) : ''
           };
 
+          if (inventoryAccountId) part.inventoryAccountId = inventoryAccountId;
           if (purchaseAccountId) part.purchaseAccountId = purchaseAccountId;
           if (incomeAccountId) part.incomeAccountId = incomeAccountId;
           if (taxId) part.taxId = taxId;
@@ -536,7 +545,7 @@ const Inventory = () => {
                 <div className="space-y-1">
                   <p className="font-bold text-sm" style={{ color: 'var(--text-main)' }}>Choose Excel spreadsheet</p>
                   <p className="text-xs text-[var(--text-muted)]">Supports .xlsx and .xls formats</p>
-                  <p className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider font-semibold pt-1">Required: partName, partNumber &bull; Optional: category, unit, unitCost, reorderLevel, description, purchaseAccountCode, incomeAccountCode, taxProfileName</p>
+                  <p className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider font-semibold pt-1">Required: partName, partNumber &bull; Optional: category, unit, sellingPrice, reorderLevel, description, inventoryAccountCode, purchaseAccountCode, incomeAccountCode, taxProfileName</p>
                 </div>
                 <input
                   type="file"
@@ -572,7 +581,7 @@ const Inventory = () => {
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Part Name</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Part Number</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Category</th>
-                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60 text-right">Price</th>
+                          <th className="p-3 font-semibold uppercase tracking-wider opacity-60 text-right">Selling Price</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60 text-right">Qty</th>
                           <th className="p-3 font-semibold uppercase tracking-wider opacity-60">Accounts</th>
                         </tr>
@@ -588,7 +597,7 @@ const Inventory = () => {
                             <td className="p-3 text-right font-mono">${part.unitCost?.toFixed(2) || '0.00'}</td>
                             <td className="p-3 text-right font-mono font-bold text-[var(--brand-lime)]">{part.quantityOnHand}</td>
                             <td className="p-3">
-                              {part.purchaseAccountId || part.incomeAccountId || part.taxId ? (
+                              {part.inventoryAccountId || part.purchaseAccountId || part.incomeAccountId || part.taxId ? (
                                 <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[10px] font-bold">Custom</span>
                               ) : (
                                 <span className="px-2 py-0.5 rounded bg-[var(--bg-input)] text-[10px] font-medium opacity-50">Default</span>

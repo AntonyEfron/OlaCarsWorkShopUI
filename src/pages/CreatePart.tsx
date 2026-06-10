@@ -40,6 +40,7 @@ const CreatePart = () => {
     unitCost: 0, // represents selling price
     reorderLevel: 5,
     description: '',
+    inventoryAccountId: '',
     purchaseAccountId: '',
     incomeAccountId: '',
     taxId: ''
@@ -62,10 +63,12 @@ const CreatePart = () => {
       // Auto-fetch default accounting codes & tax
       const defaultPurchase = codes?.find((c: any) => c.code === 'CGS0001');
       const defaultIncome = codes?.find((c: any) => c.code === 'IN0008');
+      const defaultInventory = codes?.find((c: any) => c.code === 'AST0001');
       const defaultTax = taxes?.find((t: any) => t.name === 'ITBMS');
 
       setForm(prev => ({
         ...prev,
+        inventoryAccountId: defaultInventory?._id || '',
         purchaseAccountId: defaultPurchase?._id || '',
         incomeAccountId: defaultIncome?._id || '',
         taxId: defaultTax?._id || ''
@@ -92,6 +95,7 @@ const CreatePart = () => {
         unitCost: part.unitCost,
         reorderLevel: part.reorderLevel,
         description: part.description || '',
+        inventoryAccountId: part.inventoryAccountId?._id || part.inventoryAccountId || '',
         purchaseAccountId: part.purchaseAccountId?._id || part.purchaseAccountId || '',
         incomeAccountId: part.incomeAccountId?._id || part.incomeAccountId || '',
         taxId: part.taxId?._id || part.taxId || ''
@@ -108,6 +112,10 @@ const CreatePart = () => {
     e.preventDefault();
     if (!form.partName || !form.partNumber) {
       toast.error('Part Name and Part ID are required.');
+      return;
+    }
+    if (!form.inventoryAccountId || !form.purchaseAccountId || !form.incomeAccountId) {
+      toast.error('All accounting codes are required.');
       return;
     }
 
@@ -249,10 +257,29 @@ const CreatePart = () => {
               />
             </div>
 
+            {/* Inventory Accounting Code */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Inventory Accounting Code</label>
+              <select
+                required
+                className="input-field"
+                value={form.inventoryAccountId}
+                onChange={(e) => setForm({ ...form, inventoryAccountId: e.target.value })}
+              >
+                <option value="">Select Account Code</option>
+                {accountingCodes.map(code => (
+                  <option key={code._id} value={code._id}>
+                    {code.code} - {code.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Purchase Accounting Code */}
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Purchase Accounting Code</label>
               <select
+                required
                 className="input-field"
                 value={form.purchaseAccountId}
                 onChange={(e) => setForm({ ...form, purchaseAccountId: e.target.value })}
@@ -270,6 +297,7 @@ const CreatePart = () => {
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Income Accounting Code</label>
               <select
+                required
                 className="input-field"
                 value={form.incomeAccountId}
                 onChange={(e) => setForm({ ...form, incomeAccountId: e.target.value })}

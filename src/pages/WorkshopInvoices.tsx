@@ -45,6 +45,7 @@ const WorkshopInvoices: React.FC = () => {
   const filteredInvoices = invoices.filter(inv => {
     const matchesSearch = 
       inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (inv.customer?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (inv.driver?.personalInfo?.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (inv.vehicle?.legalDocs?.registrationNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -164,7 +165,11 @@ const WorkshopInvoices: React.FC = () => {
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 text-sm font-medium">
                           <User size={14} className="text-dim" />
-                          {inv.driver?.personalInfo?.fullName || 'N/A'}
+                          {inv.customer?.name ? (
+                            <span className="text-brand-lime">{inv.customer.name} (Customer)</span>
+                          ) : (
+                            inv.driver?.personalInfo?.fullName || 'N/A'
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-[10px] text-dim uppercase">
                           <Car size={14} />
@@ -276,6 +281,20 @@ const WorkshopInvoices: React.FC = () => {
                   <p className="text-xl font-bold mt-1 text-brand-lime">${selectedInvoice.balance.toLocaleString()}</p>
                 </div>
               </div>
+
+              {/* Customer Details */}
+              {selectedInvoice.customer && (
+                <div className="p-4 rounded-2xl bg-main/50 border border-main space-y-2">
+                  <h3 className="text-xs font-bold uppercase tracking-widest opacity-60 flex items-center gap-2">
+                    <User size={16} /> Customer Details
+                  </h3>
+                  <div className="flex items-center gap-4 text-sm">
+                    <p className="font-bold">{selectedInvoice.customer.name}</p>
+                    {selectedInvoice.customer.email && <p className="text-dim">| {selectedInvoice.customer.email}</p>}
+                    {selectedInvoice.customer.phone && <p className="text-dim">| {selectedInvoice.customer.phone}</p>}
+                  </div>
+                </div>
+              )}
 
               {/* Payment Breakdown */}
               <div className="space-y-4">

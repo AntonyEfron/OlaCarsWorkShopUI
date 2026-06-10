@@ -85,7 +85,10 @@ const WorkOrderDetail = () => {
     const [bill, setBill] = useState<any>(null);
     const [isDriverBilled, setIsDriverBilled] = useState(false);
     const [hourlyRate, setHourlyRate] = useState(150);
-    const [taxRate, setTaxRate] = useState(5);
+    const [taxRate, setTaxRate] = useState(7);
+    const [taxProfileId, setTaxProfileId] = useState('');
+    const [taxName, setTaxName] = useState('');
+    const [taxProfiles, setTaxProfiles] = useState<any[]>([]);
 
     const load = useCallback(async () => {
         if (!id) return;
@@ -97,6 +100,21 @@ const WorkOrderDetail = () => {
             try {
                 const rate = await getHourlyLabourRate();
                 setHourlyRate(rate);
+            } catch {}
+
+            try {
+                const taxes = await getTaxProfiles();
+                setTaxProfiles(taxes || []);
+                const itbms = taxes?.find((t: any) => t.name === 'ITBMS');
+                if (itbms) {
+                    setTaxRate(itbms.rate);
+                    setTaxProfileId(itbms._id);
+                    setTaxName(itbms.name);
+                } else if (taxes?.length) {
+                    setTaxRate(taxes[0].rate);
+                    setTaxProfileId(taxes[0]._id);
+                    setTaxName(taxes[0].name);
+                }
             } catch {}
 
             if (data.serviceBillId) {
@@ -1003,14 +1021,29 @@ const WorkOrderDetail = () => {
                                                 />
                                             </div>
                                             <div className="space-y-1.5">
-                                                <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase ml-1">Tax Rate (%)</label>
-                                                <input 
-                                                    type="number" 
-                                                    id="taxRate"
-                                                    value={taxRate}
-                                                    onChange={(e) => setTaxRate(Number(e.target.value))}
+                                                <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase ml-1">Tax Profile</label>
+                                                <select 
+                                                    id="taxProfile"
+                                                    value={taxProfileId}
+                                                    onChange={(e) => {
+                                                        const selected = taxProfiles.find(t => t._id === e.target.value);
+                                                        if (selected) {
+                                                            setTaxProfileId(selected._id);
+                                                            setTaxRate(selected.rate);
+                                                            setTaxName(selected.name);
+                                                        }
+                                                    }}
                                                     className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl px-4 py-3 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--brand-lime)]/50 transition-colors"
-                                                />
+                                                >
+                                                    {taxProfiles.map(tax => (
+                                                        <option key={tax._id} value={tax._id}>
+                                                            {tax.name} ({tax.rate}%)
+                                                        </option>
+                                                    ))}
+                                                    {taxProfiles.length === 0 && (
+                                                        <option value="">No tax profiles available</option>
+                                                    )}
+                                                </select>
                                             </div>
                                         </div>
 
@@ -1062,6 +1095,8 @@ const WorkOrderDetail = () => {
                                                             doAction(() => generateBill(id!, { 
                                                                 hourlyRate: Number(hourlyRate), 
                                                                 taxRate: Number(taxRate),
+                                                                taxName,
+                                                                taxProfileId,
                                                                 isDriverBilled
                                                             }));
                                                         }}
@@ -1162,7 +1197,7 @@ const WorkOrderDetail = () => {
                                                                 await approveBill(wo.serviceBillId!);
                                                             }
                                                             
-                                                            await markBillPaid(wo.serviceBillId!, 'Cash');
+                                                            await markBillPaid(wo.serviceBillId!, currentBill.totalAmount, 'Cash');
                                                             toast.success('Payment completed');
                                                             
                                                             // Force a refresh of everything
