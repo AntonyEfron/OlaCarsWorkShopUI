@@ -61,6 +61,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
                 { path: '/inventory', label: 'Inventory Stock' },
                 { path: '/requirements', label: 'Part Requirements' },
                 { path: '/purchase-requests', label: 'Purchase Requests' },
+                { path: '/purchase-orders', label: 'Purchase Orders' },
                 { path: '/write-offs', label: 'Write Offs' },
             ],
         },

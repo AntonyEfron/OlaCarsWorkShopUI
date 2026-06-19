@@ -5,6 +5,7 @@ export interface DecodedToken {
     email?: string;
     role: string;
     branchId?: string;
+    workshopId?: string;
     exp?: number;
     iat?: number;
     [key: string]: unknown;
@@ -111,5 +112,5 @@ export const getUserId = (): string | null => {
 
 export const getBranchId = (): string | null => {
     const decoded = getDecodedToken();
-    return (decoded?.branchId as string) ?? null;
+    return (decoded?.branchId as string) ?? (decoded?.workshopId as string) ?? null;
 };

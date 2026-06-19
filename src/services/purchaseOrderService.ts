@@ -20,6 +20,12 @@ export interface PurchaseOrder {
     purchaseOrderDate: string;
     branch: any;
     supplier: any;
+    supplierDetails?: {
+        name: string;
+        email?: string;
+        phone?: string;
+        address?: string;
+    };
     createdBy: string;
     creatorRole: string;
     createdAt: string;

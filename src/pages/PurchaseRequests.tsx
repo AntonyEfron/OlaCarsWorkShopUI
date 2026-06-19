@@ -65,6 +65,7 @@ const PurchaseRequests = () => {
     try {
       const response = await getProcurementRequests({
         branchId,
+        limit: 1000,
         status: statusFilter === 'ALL' ? undefined : statusFilter
       });
       console.log("[DEBUG] loadOrders response:", response);

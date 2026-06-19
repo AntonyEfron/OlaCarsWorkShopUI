@@ -8,6 +8,8 @@ import {
     Loader2,
     ClipboardList,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
 import {
     getWorkOrders,
@@ -38,24 +40,60 @@ const WorkOrderList = () => {
     const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('');
     const [priorityFilter, setPriorityFilter] = useState<string>('');
     const [typeFilter, setTypeFilter] = useState<string>('');
     const [showFilters, setShowFilters] = useState(false);
 
+    // Sorting State
+    const [sortBy, setSortBy] = useState<string>('updatedAt');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const [limit] = useState(10);
+    const [pagination, setPagination] = useState<{
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+    } | null>(null);
+
+    // Debounce search term
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+            setCurrentPage(1);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
+    // Load work orders when filters or page change
     useEffect(() => {
         loadWorkOrders();
-    }, [statusFilter, priorityFilter, typeFilter]);
+    }, [statusFilter, priorityFilter, typeFilter, currentPage, debouncedSearchTerm]);
 
     const loadWorkOrders = async () => {
         setLoading(true);
         try {
-            const filters: Record<string, string> = {};
+            const filters: Record<string, any> = {
+                page: currentPage,
+                limit: limit,
+            };
             if (statusFilter) filters.status = statusFilter;
             if (priorityFilter) filters.priority = priorityFilter;
             if (typeFilter) filters.workOrderType = typeFilter;
-            const data = await getWorkOrders(filters);
-            setWorkOrders(Array.isArray(data) ? data : []);
+            if (debouncedSearchTerm.trim()) filters.search = debouncedSearchTerm.trim();
+
+            const res = await getWorkOrders(filters);
+            if (res && res.data) {
+                setWorkOrders(Array.isArray(res.data) ? res.data : []);
+                setPagination(res.pagination || null);
+            } else {
+                setWorkOrders(Array.isArray(res) ? res : []);
+                setPagination(null);
+            }
         } catch {
             // handled by interceptor
         } finally {
@@ -63,15 +101,32 @@ const WorkOrderList = () => {
         }
     };
 
-    const filteredOrders = workOrders.filter((wo) => {
-        if (!searchTerm) return true;
-        const term = searchTerm.toLowerCase();
+    const handleSort = (field: string) => {
+        if (sortBy === field) {
+            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortBy(field);
+            setSortOrder('desc');
+        }
+    };
+
+    const SortIcon = ({ field }: { field: string }) => {
+        if (sortBy !== field) return <span className="opacity-30 ml-1 inline-block"><ChevronDown size={12} /></span>;
         return (
-            wo.workOrderNumber?.toLowerCase().includes(term) ||
-            wo.faultDescription?.toLowerCase().includes(term) ||
-            wo.workOrderType?.toLowerCase().includes(term)
+            <span className={`inline-block ml-1 transition-transform duration-200 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
+                <ChevronDown size={12} className="text-lime" style={{ color: 'var(--brand-lime)' }} />
+            </span>
         );
-    });
+    };
+
+    const getVehicleLabel = (wo: WorkOrder) => {
+        const v = wo.vehicleId;
+        if (typeof v === 'object' && v !== null) {
+            const bd = (v as Record<string, unknown>).basicDetails as Record<string, unknown> | undefined;
+            if (bd) return `${bd.make || ''} ${bd.model || ''}`.trim();
+        }
+        return 'N/A';
+    };
 
     const getStatusBadgeClass = (status: WorkOrderStatus) => {
         if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
@@ -92,16 +147,43 @@ const WorkOrderList = () => {
         }
     };
 
-    const getVehicleLabel = (wo: WorkOrder) => {
-        const v = wo.vehicleId;
-        if (typeof v === 'object' && v !== null) {
-            const bd = (v as Record<string, unknown>).basicDetails as Record<string, unknown> | undefined;
-            if (bd) return `${bd.make || ''} ${bd.model || ''}`.trim();
+    const formatStatus = (s: string) => s.replace(/_/g, ' ');
+
+    const handlePageChange = (newPage: number) => {
+        if (pagination && newPage >= 1 && newPage <= pagination.totalPages) {
+            setCurrentPage(newPage);
         }
-        return 'N/A';
     };
 
-    const formatStatus = (s: string) => s.replace(/_/g, ' ');
+    // Local client-side sorting on the current page's results
+    const sortedOrders = [...workOrders].sort((a, b) => {
+        let valA: any = '';
+        let valB: any = '';
+        if (sortBy === 'workOrderNumber') {
+            valA = a.workOrderNumber || '';
+            valB = b.workOrderNumber || '';
+        } else if (sortBy === 'vehicle') {
+            valA = getVehicleLabel(a);
+            valB = getVehicleLabel(b);
+        } else if (sortBy === 'type') {
+            valA = a.workOrderType || '';
+            valB = b.workOrderType || '';
+        } else if (sortBy === 'priority') {
+            const weight = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+            valA = weight[a.priority] || 0;
+            valB = weight[b.priority] || 0;
+        } else if (sortBy === 'status') {
+            valA = a.status || '';
+            valB = b.status || '';
+        } else if (sortBy === 'updatedAt') {
+            valA = new Date(a.updatedAt || a.createdAt).getTime();
+            valB = new Date(b.updatedAt || b.createdAt).getTime();
+        }
+        
+        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+    });
 
     return (
         <div className="space-y-5 animate-fadeInUp">
@@ -112,7 +194,7 @@ const WorkOrderList = () => {
                         {t('workOrders.list.title')}
                     </h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        {filteredOrders.length} {t('workOrders.list.title').toLowerCase()}
+                        {pagination ? pagination.total : workOrders.length} {t('workOrders.list.title').toLowerCase()}
                     </p>
                 </div>
                 <button
@@ -154,7 +236,7 @@ const WorkOrderList = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t" style={{ borderColor: 'var(--border-main)' }}>
                         <select
                             value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
+                            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
                             className="input-field"
                             id="filter-status"
                         >
@@ -165,7 +247,7 @@ const WorkOrderList = () => {
                         </select>
                         <select
                             value={priorityFilter}
-                            onChange={(e) => setPriorityFilter(e.target.value)}
+                            onChange={(e) => { setPriorityFilter(e.target.value); setCurrentPage(1); }}
                             className="input-field"
                             id="filter-priority"
                         >
@@ -176,7 +258,7 @@ const WorkOrderList = () => {
                         </select>
                         <select
                             value={typeFilter}
-                            onChange={(e) => setTypeFilter(e.target.value)}
+                            onChange={(e) => { setTypeFilter(e.target.value); setCurrentPage(1); }}
                             className="input-field"
                             id="filter-type"
                         >
@@ -189,12 +271,12 @@ const WorkOrderList = () => {
                 )}
             </div>
 
-            {/* Work Order Cards (mobile/tablet-friendly) */}
+            {/* Work Order Table */}
             {loading ? (
                 <div className="flex items-center justify-center py-20">
                     <Loader2 size={32} className="animate-spin" style={{ color: 'var(--brand-lime)' }} />
                 </div>
-            ) : filteredOrders.length === 0 ? (
+            ) : workOrders.length === 0 ? (
                 <div className="glass-card p-12 text-center">
                     <ClipboardList size={48} className="mx-auto mb-4 opacity-20" style={{ color: 'var(--text-dim)' }} />
                     <p className="font-medium" style={{ color: 'var(--text-muted)' }}>No work orders found</p>
@@ -205,45 +287,134 @@ const WorkOrderList = () => {
                     </p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {filteredOrders.map((wo) => (
-                        <div
-                            key={wo._id}
-                            className="glass-card p-4 cursor-pointer transition-all duration-200 hover:border-opacity-60 active:scale-[0.98]"
-                            onClick={() => navigate(`/work-orders/${wo._id}`)}
-                            style={{ borderColor: 'var(--border-main)' }}
-                        >
-                            {/* Card Header */}
-                            <div className="flex items-start justify-between mb-3">
-                                <div>
-                                    <p className="text-xs font-mono font-bold" style={{ color: 'var(--brand-lime)' }}>
-                                        {wo.workOrderNumber}
-                                    </p>
-                                    <p className="text-sm font-semibold mt-1" style={{ color: 'var(--text-main)' }}>
-                                        {getVehicleLabel(wo)}
-                                    </p>
-                                </div>
-                                <span className={`badge ${getPriorityBadge(wo.priority)}`}>
-                                    {wo.priority}
-                                </span>
-                            </div>
+                <div className="glass-card overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <th className="pl-6 cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('workOrderNumber')}>
+                                        <div className="flex items-center">
+                                            {t('dashboard.table.wo')}
+                                            <SortIcon field="workOrderNumber" />
+                                        </div>
+                                    </th>
+                                    <th className="cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('vehicle')}>
+                                        <div className="flex items-center">
+                                            {t('dashboard.table.vehicle')}
+                                            <SortIcon field="vehicle" />
+                                        </div>
+                                    </th>
+                                    <th className="cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('type')}>
+                                        <div className="flex items-center">
+                                            {t('dashboard.table.type')}
+                                            <SortIcon field="type" />
+                                        </div>
+                                    </th>
+                                    <th>{t('workOrders.create.fault')}</th>
+                                    <th className="cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('priority')}>
+                                        <div className="flex items-center">
+                                            {t('dashboard.table.priority')}
+                                            <SortIcon field="priority" />
+                                        </div>
+                                    </th>
+                                    <th className="cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('status')}>
+                                        <div className="flex items-center">
+                                            {t('dashboard.table.status')}
+                                            <SortIcon field="status" />
+                                        </div>
+                                    </th>
+                                    <th className="pr-6 cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('updatedAt')}>
+                                        <div className="flex items-center">
+                                            {t('dashboard.table.updated')}
+                                            <SortIcon field="updatedAt" />
+                                        </div>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedOrders.map((wo) => (
+                                    <tr
+                                        key={wo._id}
+                                        className="cursor-pointer"
+                                        onClick={() => navigate(`/work-orders/${wo._id}`)}
+                                    >
+                                        <td className="pl-6 font-mono text-xs font-bold" style={{ color: 'var(--brand-lime)' }}>
+                                            {wo.workOrderNumber}
+                                        </td>
+                                        <td className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>
+                                            {getVehicleLabel(wo)}
+                                        </td>
+                                        <td className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                            {wo.workOrderType.replace(/_/g, ' ')}
+                                        </td>
+                                        <td className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                            <div className="line-clamp-1 max-w-xs" title={wo.faultDescription}>
+                                                {wo.faultDescription}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span className={`badge ${getPriorityBadge(wo.priority)}`}>
+                                                {wo.priority}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span className={`badge ${getStatusBadgeClass(wo.status)}`}>
+                                                {formatStatus(wo.status)}
+                                            </span>
+                                        </td>
+                                        <td className="pr-6 text-xs" style={{ color: 'var(--text-dim)' }}>
+                                            {new Date(wo.updatedAt || wo.createdAt).toLocaleDateString()}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
 
-                            {/* Fault Description */}
-                            <p className="text-xs line-clamp-2 mb-3" style={{ color: 'var(--text-muted)' }}>
-                                {wo.faultDescription}
+                    {/* Pagination */}
+                    {pagination && pagination.totalPages > 1 && (
+                        <div className="px-6 py-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors" style={{ borderColor: 'var(--border-main)', background: 'rgba(0,0,0,0.01)' }}>
+                            <p className="text-xs font-bold" style={{ color: 'var(--text-dim)' }}>
+                                {t('common.add').includes('Agre') 
+                                    ? `Mostrando ${workOrders.length} de ${pagination.total} registros` 
+                                    : `Showing ${workOrders.length} of ${pagination.total} records`}
                             </p>
-
-                            {/* Card Footer */}
-                            <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-main)' }}>
-                                <span className={`badge ${getStatusBadgeClass(wo.status)}`}>
-                                    {formatStatus(wo.status)}
-                                </span>
-                                <span className="text-[10px]" style={{ color: 'var(--text-dim)' }}>
-                                    {wo.workOrderType.replace(/_/g, ' ')}
-                                </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1 || loading}
+                                    className="p-2 rounded-lg border transition-all hover:bg-black/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                                    style={{ borderColor: 'var(--border-main)', color: 'var(--text-main)' }}
+                                >
+                                    <ChevronLeft size={18} />
+                                </button>
+                                <div className="flex items-center gap-1">
+                                    {[...Array(pagination.totalPages)].map((_, i) => (
+                                        <button
+                                            key={i + 1}
+                                            onClick={() => handlePageChange(i + 1)}
+                                            className={`w-9 h-9 rounded-lg text-xs font-black transition-all ${currentPage === i + 1 ? 'shadow-lg' : 'hover:bg-black/5'}`}
+                                            style={{ 
+                                                background: currentPage === i + 1 ? 'var(--brand-lime)' : 'transparent',
+                                                color: currentPage === i + 1 ? '#000' : 'var(--text-main)',
+                                                border: currentPage === i + 1 ? 'none' : '1px solid var(--border-main)'
+                                            }}
+                                        >
+                                            {i + 1}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === pagination.totalPages || loading}
+                                    className="p-2 rounded-lg border transition-all hover:bg-black/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                                    style={{ borderColor: 'var(--border-main)', color: 'var(--text-main)' }}
+                                >
+                                    <ChevronRight size={18} />
+                                </button>
                             </div>
                         </div>
-                    ))}
+                    )}
                 </div>
             )}
         </div>

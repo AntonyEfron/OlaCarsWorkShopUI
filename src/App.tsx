@@ -18,6 +18,7 @@ import CreatePart from './pages/CreatePart';
 import WorkshopRequirements from './pages/WorkshopRequirements';
 import PurchaseRequests from './pages/PurchaseRequests';
 import PurchaseRequestDetail from './pages/PurchaseRequestDetail';
+import PurchaseOrders from './pages/PurchaseOrders';
 import ServiceBills from './pages/ServiceBills';
 import WorkshopInvoices from './pages/WorkshopInvoices';
 import MaintenanceTracker from './pages/MaintenanceTracker';
@@ -68,6 +69,7 @@ function App() {
                             <Route path="/requirements" element={<WorkshopRequirements />} />
                             <Route path="/purchase-requests" element={<PurchaseRequests />} />
                             <Route path="/purchase-requests/:id" element={<PurchaseRequestDetail />} />
+                            <Route path="/purchase-orders" element={<PurchaseOrders />} />
                             <Route path="/scrap-list" element={<ScrapList />} />
                             <Route path="/write-offs" element={<WriteOffList />} />
                             <Route path="/service-bills" element={<ServiceBills />} />

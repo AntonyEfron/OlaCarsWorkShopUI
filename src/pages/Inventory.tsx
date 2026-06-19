@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next';
 import {
   Package, Plus, Search, Filter, AlertTriangle,
   ArrowUpRight, History, Trash2, Edit2, Loader2,
-  ChevronDown, X, CheckCircle2, MoreHorizontal, Truck, Upload
+  ChevronDown, X, CheckCircle2, MoreHorizontal, Truck, Upload,
+  ShoppingCart
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
-  getParts, createPart, updatePart, deletePart, restockPart, bulkCreateParts,
+  getParts, createPart, updatePart, deletePart, bulkCreateParts,
   type InventoryPart, type PartCategory, type UnitType
 } from '../services/inventoryService';
 import { createProcurementRequest } from '../services/workshopProcurementService';
@@ -96,17 +97,12 @@ const Inventory = () => {
     if (!selectedPart) return;
     setSubmitting(true);
     try {
-      if (isStaff) {
-        await createProcurementRequest({
-          part: selectedPart._id,
-          quantity: restockQty,
-          notes: `Automated purchase request for low stock item: ${selectedPart.partName}`
-        });
-        toast.success(`Purchase request for ${restockQty} ${selectedPart.unit}(s) sent to manager`);
-      } else {
-        await restockPart(selectedPart._id, restockQty);
-        toast.success(`Restocked ${restockQty} ${selectedPart.unit}(s)`);
-      }
+      await createProcurementRequest({
+        part: selectedPart._id,
+        quantity: restockQty,
+        notes: `Purchase request for item: ${selectedPart.partName}`
+      });
+      toast.success(`Purchase request for ${restockQty} ${selectedPart.unit}(s) created successfully!`);
       setShowRestockModal(false);
       loadParts();
     } catch (err: any) {
@@ -446,9 +442,9 @@ const Inventory = () => {
                           <button
                             onClick={(e) => { e.stopPropagation(); setSelectedPart(part); setRestockQty(1); setShowRestockModal(true); }}
                             className="p-2 rounded-lg hover:bg-[var(--brand-lime-alpha)] hover:text-[var(--brand-lime)] transition-colors"
-                            title={isStaff ? 'Request Purchase' : 'Restock'}
+                            title="Create Purchase Request"
                           >
-                            < Truck size={16} />
+                            <ShoppingCart size={16} />
                           </button>
                            <button
                              onClick={(e) => { e.stopPropagation(); navigate(`/inventory/edit/${part._id}`); }}
@@ -639,16 +635,16 @@ const Inventory = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="glass-card w-full max-w-sm p-6 space-y-6 shadow-2xl text-center">
             <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto">
-              <Truck size={32} className="text-blue-500" />
+              <ShoppingCart size={32} className="text-blue-500" />
             </div>
             <div>
-              <h2 className="text-xl font-bold">Restock Part</h2>
+              <h2 className="text-xl font-bold">Create Purchase Request</h2>
               <p className="text-sm opacity-60 mt-1">{selectedPart.partName}</p>
             </div>
 
             <div className="space-y-4">
               <div className="space-y-1.5 text-left">
-                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">New Quantity Received ({selectedPart.unit})</label>
+                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity Requested ({selectedPart.unit})</label>
                 <input
                   type="number"
                   min="1"
@@ -667,11 +663,11 @@ const Inventory = () => {
                   Cancel
                 </button>
                 <button
-                  className="btn-primary flex-1 bg-blue-600 hover:bg-blue-700 !border-blue-600"
+                  className="btn-primary flex-1"
                   disabled={submitting || restockQty < 1}
                   onClick={handleRestock}
                 >
-                  {submitting ? <Loader2 size={18} className="animate-spin" /> : (isStaff ? 'Send Purchase Request' : 'Confirm Restock')}
+                  {submitting ? <Loader2 size={18} className="animate-spin" /> : 'Send Request'}
                 </button>
               </div>
             </div>

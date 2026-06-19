@@ -171,10 +171,19 @@ export interface WorkOrderFilters {
     vehicleId?: string;
     priority?: Priority;
     workOrderType?: WorkOrderType;
+    page?: number;
+    limit?: number;
+    search?: string;
 }
 
-export const getWorkOrders = async (filters: WorkOrderFilters = {}): Promise<WorkOrder[]> => {
+export const getWorkOrders = async (filters: WorkOrderFilters = {}): Promise<any> => {
     const response = await api.get('/api/work-orders', { params: filters });
+    if (filters.page !== undefined || filters.limit !== undefined) {
+        return {
+            data: response.data.data,
+            pagination: response.data.pagination
+        };
+    }
     return response.data.data || response.data;
 };
 
