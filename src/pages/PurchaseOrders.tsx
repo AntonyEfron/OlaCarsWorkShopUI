@@ -237,7 +237,7 @@ const PurchaseOrders = () => {
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--brand-lime)]">History Logs</h3>
                 <div className="space-y-2">
-                  {selectedPO.editHistory.map((log: any, idx) => (
+                  {selectedPO.editHistory.map((log: any, idx: number) => (
                     <div key={idx} className="flex gap-3 text-xs bg-white/[0.01] p-3 rounded-lg border border-white/[0.03]">
                       <div className="flex-shrink-0 text-white/[0.3] mt-0.5">
                         <Clock size={14} />

@@ -28,6 +28,16 @@ export interface PurchaseOrder {
     };
     createdBy: string;
     creatorRole: string;
+    approvedBy?: string;
+    approverRole?: string;
+    approvalNote?: string;
+    editHistory?: Array<{
+        editedAt: string;
+        editedBy: string;
+        editorRole: string;
+        previousStatus: string;
+        changesSummary: string;
+    }>;
     createdAt: string;
     updatedAt: string;
 }
