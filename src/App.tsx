@@ -7,7 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { useAuthRefresh } from './hooks/useAuthRefresh';
 import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/Login';
-import AutoTranslate from './components/AutoTranslate';
+import useDOMTranslator from './hooks/useDOMTranslator';
 import Dashboard from './pages/Dashboard';
 import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
@@ -28,6 +28,7 @@ import WriteOffList from './pages/WriteOffList';
 
 function App() {
     useAuthRefresh();
+    useDOMTranslator();
 
     return (
         <ThemeProvider>
@@ -54,7 +55,7 @@ function App() {
             <Router>
                 <Routes>
                     {/* Public */}
-                    <Route path="/login" element={<AutoTranslate><Login /></AutoTranslate>} />
+                    <Route path="/login" element={<Login />} />
 
                     {/* Protected — Workshop Dashboard */}
                     <Route element={<ProtectedRoute />}>
