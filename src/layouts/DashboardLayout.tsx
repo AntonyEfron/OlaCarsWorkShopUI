@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import TopBar from '../components/TopBar';
+import AutoTranslate from '../components/AutoTranslate';
 
 const DashboardLayout = () => {
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -16,10 +17,11 @@ const DashboardLayout = () => {
     };
 
     return (
-        <div
-            className="flex h-screen overflow-hidden transition-colors duration-300"
-            style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}
-        >
+        <AutoTranslate>
+            <div
+                className="flex h-screen overflow-hidden transition-colors duration-300"
+                style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}
+            >
             {/* Desktop Sidebar */}
             <div
                 className={`hidden lg:block flex-shrink-0 transition-all duration-300`}
@@ -49,6 +51,7 @@ const DashboardLayout = () => {
                 </main>
             </div>
         </div>
+    </AutoTranslate>
     );
 };
 
