@@ -241,7 +241,7 @@ const ManageStaff = () => {
                         <Wrench size={28} className="text-lime" style={{ color: 'var(--brand-lime)' }} />
                         {t('manageStaff.title', 'Manage Staff')}
                     </h1>
-                    <p className="text-sm mt-1 transition-colors" style={{ color: 'var(--text-dim)' }}>Manage your branch's technical staff</p>
+                    <p className="text-sm mt-1 transition-colors" style={{ color: 'var(--text-dim)' }}>{t('manageStaff.subtitle', "Manage your branch's technical staff")}</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <button

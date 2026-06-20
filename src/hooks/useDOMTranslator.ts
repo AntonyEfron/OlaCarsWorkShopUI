@@ -19,6 +19,11 @@ export function useDOMTranslator() {
             return;
           }
 
+          // Skip elements marked not to be translated
+          if (el.hasAttribute('data-no-translate') || el.closest?.('[data-no-translate]')) {
+            return;
+          }
+
           // Translate placeholders, titles, and labels
           const attrs = ['placeholder', 'title', 'label'];
           attrs.forEach(attr => {
@@ -33,8 +38,10 @@ export function useDOMTranslator() {
                 }
                 
                 const origVal = (el as any)[origKey];
-                if (lng === 'es' && esResources[origVal]) {
-                  el.setAttribute(attr, esResources[origVal]);
+                if (lng === 'es') {
+                  if (esResources[origVal]) {
+                    el.setAttribute(attr, esResources[origVal]);
+                  }
                 } else {
                   el.setAttribute(attr, origVal);
                 }
@@ -56,10 +63,12 @@ export function useDOMTranslator() {
             const origText = (node as any).__originalText;
             const origTrimmed = origText.trim();
             
-            if (lng === 'es' && esResources[origTrimmed]) {
-              const leading = origText.match(/^\s*/)?.[0] || '';
-              const trailing = origText.match(/\s*$/)?.[0] || '';
-              node.nodeValue = leading + esResources[origTrimmed] + trailing;
+            if (lng === 'es') {
+              if (esResources[origTrimmed]) {
+                const leading = origText.match(/^\s*/)?.[0] || '';
+                const trailing = origText.match(/\s*$/)?.[0] || '';
+                node.nodeValue = leading + esResources[origTrimmed] + trailing;
+              }
             } else {
               node.nodeValue = origText;
             }

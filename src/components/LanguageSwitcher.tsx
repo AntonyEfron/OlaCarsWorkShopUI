@@ -37,7 +37,7 @@ const LanguageSwitcher = () => {
     }, []);
 
     return (
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative" ref={dropdownRef} data-no-translate="true">
             {/* Trigger Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
