@@ -28,6 +28,7 @@ interface SubItem {
 }
 
 interface NavItem {
+    id: string;
     label: string;
     icon: any;
     path?: string;
@@ -45,53 +46,58 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     const isManager = role === 'workshopmanager';
 
     const baseNavItems: NavItem[] = [
-        { path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
+        { id: 'dashboard', path: '/dashboard', icon: LayoutDashboard, label: t('common.dashboard') },
         {
+            id: 'workOrders',
             label: t('common.workOrders'),
             icon: ClipboardList,
             subItems: [
-                { path: '/work-orders', label: 'All Work Orders' },
+                { path: '/work-orders', label: t('sidebar.allWorkOrders', 'All Work Orders') },
                 { path: '/work-orders/create', label: t('workOrders.list.new') },
             ],
         },
         {
-            label: 'Inventory',
+            id: 'inventory',
+            label: t('sidebar.inventory', 'Inventory'),
             icon: Package,
             subItems: [
-                { path: '/inventory', label: 'Inventory Stock' },
-                { path: '/requirements', label: 'Part Requirements' },
-                { path: '/purchase-requests', label: 'Purchase Requests' },
-                { path: '/purchase-orders', label: 'Purchase Orders' },
-                { path: '/write-offs', label: 'Write Offs' },
+                { path: '/inventory', label: t('sidebar.inventoryStock', 'Inventory Stock') },
+                { path: '/requirements', label: t('sidebar.partRequirements', 'Part Requirements') },
+                { path: '/purchase-requests', label: t('sidebar.purchaseRequests', 'Purchase Requests') },
+                { path: '/purchase-orders', label: t('sidebar.purchaseOrders', 'Purchase Orders') },
+                { path: '/write-offs', label: t('sidebar.writeOffs', 'Write Offs') },
             ],
         },
         {
-            label: 'Bills & Invoices',
+            id: 'billsInvoices',
+            label: t('sidebar.billsInvoices', 'Bills & Invoices'),
             icon: Receipt,
             subItems: [
-                { path: '/service-bills', label: 'Service Bills' },
-                { path: '/workshop-invoices', label: 'Driver Invoices' },
+                { path: '/service-bills', label: t('sidebar.serviceBills', 'Service Bills') },
+                { path: '/workshop-invoices', label: t('sidebar.driverInvoices', 'Driver Invoices') },
             ],
         },
         {
-            label: 'Scrap Management',
+            id: 'scrap',
+            label: t('sidebar.scrapManagement', 'Scrap Management'),
             icon: Trash2,
             subItems: [
-                { path: '/scrap-list', label: 'Scrap List' },
+                { path: '/scrap-list', label: t('sidebar.scrapList', 'Scrap List') },
             ],
         },
         {
+            id: 'maintenance',
             path: '/maintenance-tracker',
             icon: Wrench,
-            label: 'Maintenance Tracker',
+            label: t('sidebar.maintenanceTracker', 'Maintenance Tracker'),
         },
     ];
 
     if (isManager) {
-        baseNavItems.push({ path: '/manage-staff', icon: Users, label: t('manageStaff.title', 'Manage Staff') });
+        baseNavItems.push({ id: 'manageStaff', path: '/manage-staff', icon: Users, label: t('manageStaff.title', 'Manage Staff') });
     }
 
-    baseNavItems.push({ path: '/profile', icon: User, label: 'System Preferences' });
+    baseNavItems.push({ id: 'preferences', path: '/profile', icon: User, label: t('sidebar.systemPreferences', 'System Preferences') });
 
     // Determine if a parent is currently active based on current pathname
     const isParentActive = (item: NavItem) => {
@@ -109,7 +115,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
         const initial: Record<string, boolean> = {};
         baseNavItems.forEach(item => {
             if (item.subItems && item.subItems.some(sub => location.pathname === sub.path)) {
-                initial[item.label] = true;
+                initial[item.id] = true;
             }
         });
         return initial;
@@ -119,15 +125,15 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     useEffect(() => {
         baseNavItems.forEach(item => {
             if (item.subItems && item.subItems.some(sub => location.pathname === sub.path)) {
-                setExpandedMenus(prev => ({ ...prev, [item.label]: true }));
+                setExpandedMenus(prev => ({ ...prev, [item.id]: true }));
             }
         });
     }, [location.pathname]);
 
-    const toggleMenu = (menuLabel: string) => {
+    const toggleMenu = (itemId: string) => {
         setExpandedMenus(prev => ({
             ...prev,
-            [menuLabel]: !prev[menuLabel]
+            [itemId]: !prev[itemId]
         }));
     };
 
@@ -178,7 +184,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
             <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
                 {baseNavItems.map((item) => {
                     const hasSubItems = !!item.subItems && item.subItems.length > 0;
-                    const isExpanded = !!expandedMenus[item.label];
+                    const isExpanded = !!expandedMenus[item.id];
                     const isActive = isParentActive(item);
 
                     if (!hasSubItems) {
@@ -207,9 +213,9 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
 
                     // Multi-link accordion rendering
                     return (
-                        <div key={item.label} className="space-y-1">
+                        <div key={item.id} className="space-y-1">
                             <button
-                                onClick={() => toggleMenu(item.label)}
+                                onClick={() => toggleMenu(item.id)}
                                 className={`flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
                                     isActive && !isExpanded ? 'bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)]' : 'text-[var(--sidebar-text)] hover:bg-white/5'
                                 }`}

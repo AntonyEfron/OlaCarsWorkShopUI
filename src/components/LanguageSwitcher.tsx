@@ -15,13 +15,30 @@ const languages: Language[] = [
 
 const LanguageSwitcher = () => {
     const { i18n } = useTranslation();
+    const [langCode, setLangCode] = useState(i18n.language || 'en');
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const currentLang = languages.find((l) => l.code === i18n.language) || languages[0];
+    // Keep state in sync with i18n language
+    useEffect(() => {
+        setLangCode(i18n.language || 'en');
+    }, [i18n.language]);
+
+    useEffect(() => {
+        const handleLangChange = (lng: string) => {
+            setLangCode(lng);
+        };
+        i18n.on('languageChanged', handleLangChange);
+        return () => {
+            i18n.off('languageChanged', handleLangChange);
+        };
+    }, [i18n]);
+
+    const currentLang = languages.find((l) => langCode?.startsWith(l.code)) || languages[0];
 
     const handleSelect = (code: string) => {
         i18n.changeLanguage(code);
+        setLangCode(code);
         setIsOpen(false);
     };
 

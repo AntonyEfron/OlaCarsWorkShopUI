@@ -803,5 +803,21 @@
     "workshopmanager": "jefe de taller",
     "workshopstaff": "personal del taller",
     "w-full text-left text-xs": "w-texto completo-texto izquierdo-xs",
-    "w-full text-left border-collapse text-xs": "w-texto completo-borde izquierdo-contraer texto-xs"
+    "w-full text-left border-collapse text-xs": "w-texto completo-borde izquierdo-contraer texto-xs",
+    "sidebar": {
+        "allWorkOrders": "Todas las Órdenes",
+        "inventory": "Inventario",
+        "inventoryStock": "Stock de Inventario",
+        "partRequirements": "Requerimientos de Repuestos",
+        "purchaseRequests": "Solicitudes de Compra",
+        "purchaseOrders": "Órdenes de Compra",
+        "writeOffs": "Amortizaciones/Bajas",
+        "billsInvoices": "Facturas y Recibos",
+        "serviceBills": "Facturas de Servicio",
+        "driverInvoices": "Facturas de Conductor",
+        "scrapManagement": "Gestión de Chatarra",
+        "scrapList": "Lista de Chatarra",
+        "maintenanceTracker": "Seguimiento de Mantenimiento",
+        "systemPreferences": "Preferencias del Sistema"
+    }
 }

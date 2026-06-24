@@ -820,5 +820,21 @@
     "workshopmanager": "workshopmanager",
     "workshopstaff": "workshopstaff",
     "w-full text-left text-xs": "w-full text-left text-xs",
-    "w-full text-left border-collapse text-xs": "w-full text-left border-collapse text-xs"
+    "w-full text-left border-collapse text-xs": "w-full text-left border-collapse text-xs",
+    "sidebar": {
+        "allWorkOrders": "All Work Orders",
+        "inventory": "Inventory",
+        "inventoryStock": "Inventory Stock",
+        "partRequirements": "Part Requirements",
+        "purchaseRequests": "Purchase Requests",
+        "purchaseOrders": "Purchase Orders",
+        "writeOffs": "Write Offs",
+        "billsInvoices": "Bills & Invoices",
+        "serviceBills": "Service Bills",
+        "driverInvoices": "Driver Invoices",
+        "scrapManagement": "Scrap Management",
+        "scrapList": "Scrap List",
+        "maintenanceTracker": "Maintenance Tracker",
+        "systemPreferences": "System Preferences"
+    }
 }
