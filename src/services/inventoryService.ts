@@ -3,7 +3,7 @@ import api from './api';
 export type PartCategory =
   | 'Engine' | 'Transmission' | 'Brakes' | 'Suspension' | 'Electrical'
   | 'Body' | 'Tyres' | 'Fluids' | 'Filters' | 'Belts' | 'Cooling'
-  | 'Exhaust' | 'Interior' | 'Other';
+  | 'Exhaust' | 'Interior' | 'Parts' | 'Other';
 
 export type UnitType = 'piece' | 'litre' | 'kg' | 'metre' | 'set' | 'pair' | 'box';
 

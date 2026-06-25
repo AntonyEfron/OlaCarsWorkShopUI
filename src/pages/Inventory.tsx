@@ -21,7 +21,7 @@ import * as XLSX from 'xlsx';
 const CATEGORIES: PartCategory[] = [
   'Engine', 'Transmission', 'Brakes', 'Suspension', 'Electrical',
   'Body', 'Tyres', 'Fluids', 'Filters', 'Belts', 'Cooling',
-  'Exhaust', 'Interior', 'Other'
+  'Exhaust', 'Interior', 'Parts', 'Other'
 ];
 
 const UNITS: UnitType[] = ['piece', 'litre', 'kg', 'metre', 'set', 'pair', 'box'];
@@ -39,8 +39,6 @@ const Inventory = () => {
   const [parts, setParts] = useState<InventoryPart[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
-  const [showFilters, setShowFilters] = useState(false);
 
   // Modals
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -59,7 +57,7 @@ const Inventory = () => {
   useEffect(() => {
     loadParts();
     loadLookupData();
-  }, [categoryFilter, branchId]);
+  }, [branchId]);
 
   const loadLookupData = async () => {
     try {
@@ -77,8 +75,7 @@ const Inventory = () => {
   const loadParts = async () => {
     setLoading(true);
     try {
-      const filters: any = { branchId };
-      if (categoryFilter) filters.category = categoryFilter;
+      const filters: any = { branchId, category: 'Parts' };
       const data = await getParts(filters);
       setParts(data);
     } catch (err: any) {
@@ -171,8 +168,11 @@ const Inventory = () => {
 
         const errors: string[] = [];
         const validParts = parsed.map((row, index) => {
-          if (!row.partName || !row.partNumber) {
-            errors.push(`Row ${index + 2}: Missing required partName or partNumber`);
+          const resolvedPartName = row.partName || row.Name || row.item_name || row['Item Name'] || '';
+          const resolvedPartNumber = row.partNumber || row.SKU || row['Part Number'] || row['Item ID'] || '';
+
+          if (!resolvedPartName || !resolvedPartNumber) {
+            errors.push(`Row ${index + 2}: Missing required Part Name (Name) or SKU/Part Number`);
             return null;
           }
 
@@ -204,13 +204,34 @@ const Inventory = () => {
           }
 
           const part: any = {
-            partName: String(row.partName),
-            partNumber: String(row.partNumber),
-            category: row.category ? String(row.category) : 'Other',
-            unit: row.unit ? String(row.unit) : 'piece',
-            unitCost: Number(row.sellingPrice ?? row.unitCost) || 0,
-            quantityOnHand: Number(row.quantityOnHand) || 0,
-            reorderLevel: Number(row.reorderLevel) || 5,
+            partName: String(resolvedPartName).trim(),
+            partNumber: String(resolvedPartNumber).trim().toUpperCase(),
+            category: 'Parts',
+            unit: row.unit || row.UsageUnit || row['Usage Unit'] || 'piece',
+            unitCost: (() => {
+              const val = row.sellingPrice ?? row.unitCost ?? row.SellingPrice ?? row.UnitCost ?? row['Selling Rate'] ?? row['Selling Price'];
+              if (val === undefined || val === null || val === '') return 0;
+              if (typeof val === 'number') return val;
+              const cleaned = String(val).replace(/[A-Za-z\$\€\£\¥\s]/g, '').replace(/,/g, '');
+              const n = Number(cleaned);
+              return isNaN(n) ? 0 : n;
+            })(),
+            quantityOnHand: (() => {
+              const val = row.quantityOnHand ?? row.StockOnHand ?? row['Stock On Hand'];
+              if (val === undefined || val === null || val === '') return 0;
+              if (typeof val === 'number') return val;
+              const cleaned = String(val).replace(/[A-Za-z\$\€\£\¥\s]/g, '').replace(/,/g, '');
+              const n = Number(cleaned);
+              return isNaN(n) ? 0 : n;
+            })(),
+            reorderLevel: (() => {
+              const val = row.reorderLevel ?? row.ReorderLevel ?? row['Reorder Level'];
+              if (val === undefined || val === null || val === '') return 5;
+              if (typeof val === 'number') return val;
+              const cleaned = String(val).replace(/[A-Za-z\$\€\£\¥\s]/g, '').replace(/,/g, '');
+              const n = Number(cleaned);
+              return isNaN(n) ? 5 : n;
+            })(),
             description: row.description ? String(row.description) : ''
           };
 
@@ -335,7 +356,7 @@ const Inventory = () => {
       </div>
 
       {/* Search & Filter */}
-      <div className="glass-card p-4 space-y-3">
+      <div className="glass-card p-4">
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
@@ -347,34 +368,7 @@ const Inventory = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button
-            className={`btn-secondary ${categoryFilter || showFilters ? '!border-lime !text-lime' : ''}`}
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            <Filter size={16} /> Filters
-            <ChevronDown size={14} className={`transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} />
-          </button>
         </div>
-
-        {showFilters && (
-          <div className="flex flex-wrap gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-main)' }}>
-            <button
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${!categoryFilter ? 'bg-[var(--brand-lime)] text-black' : 'bg-[var(--bg-input)] hover:bg-[var(--border-main)] opacity-70'}`}
-              onClick={() => setCategoryFilter('')}
-            >
-              All Categories
-            </button>
-            {CATEGORIES.map(cat => (
-              <button
-                key={cat}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${categoryFilter === cat ? 'bg-[var(--brand-lime)] text-black' : 'bg-[var(--bg-input)] hover:bg-[var(--border-main)] opacity-70'}`}
-                onClick={() => setCategoryFilter(cat)}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Parts Table */}

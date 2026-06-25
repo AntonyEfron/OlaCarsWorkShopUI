@@ -16,7 +16,7 @@ import { getBranchId } from '../utils/auth';
 const CATEGORIES: PartCategory[] = [
   'Engine', 'Transmission', 'Brakes', 'Suspension', 'Electrical',
   'Body', 'Tyres', 'Fluids', 'Filters', 'Belts', 'Cooling',
-  'Exhaust', 'Interior', 'Other'
+  'Exhaust', 'Interior', 'Parts', 'Other'
 ];
 
 const UNITS: UnitType[] = ['piece', 'litre', 'kg', 'metre', 'set', 'pair', 'box'];
