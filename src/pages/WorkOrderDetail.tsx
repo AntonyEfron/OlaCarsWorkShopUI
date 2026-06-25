@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
     Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, Upload, AlertTriangle,
-    Receipt, CreditCard, DollarSign,
+    Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink
 } from 'lucide-react';
 import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
@@ -17,6 +17,10 @@ import {
 } from '../services/workOrderService';
 import { getUserId, getUser } from '../utils/auth';
 import { getParts, type InventoryPart } from '../services/inventoryService';
+import {
+    getVehicleGpsLocation, getGpsDevices, getVehicleGpsMileage, getVehicleGpsTrack, getVehicleGpsObdData,
+    type GpsLocationData, type GpsMileageData, type GpsTrackPoint, type GpsObdData
+} from '../services/vehicleService';
 import toast from 'react-hot-toast';
 
 type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'billing';
@@ -90,6 +94,14 @@ const WorkOrderDetail = () => {
     const [taxName, setTaxName] = useState('');
     const [taxProfiles, setTaxProfiles] = useState<any[]>([]);
 
+    /* ── GPS Data state ── */
+    const [gpsData, setGpsData] = useState<GpsLocationData | null>(null);
+    const [gpsLoading, setGpsLoading] = useState(false);
+    const [gpsMileage, setGpsMileage] = useState<GpsMileageData | null>(null);
+    const [gpsTrack, setGpsTrack] = useState<GpsTrackPoint[]>([]);
+    const [obdData, setObdData] = useState<GpsObdData | null>(null);
+    const [resolvedImei, setResolvedImei] = useState<string>('');
+
     const load = useCallback(async () => {
         if (!id) return;
         try {
@@ -100,7 +112,7 @@ const WorkOrderDetail = () => {
             try {
                 const rate = await getHourlyLabourRate();
                 setHourlyRate(rate);
-            } catch {}
+            } catch { }
 
             try {
                 const taxes = await getTaxProfiles();
@@ -115,7 +127,7 @@ const WorkOrderDetail = () => {
                     setTaxProfileId(taxes[0]._id);
                     setTaxName(taxes[0].name);
                 }
-            } catch {}
+            } catch { }
 
             if (data.serviceBillId) {
                 const b = await getServiceBillById(data.serviceBillId);
@@ -138,7 +150,7 @@ const WorkOrderDetail = () => {
     // Ensure bill is loaded if serviceBillId exists but bill state is null
     useEffect(() => {
         if (wo?.serviceBillId && !bill) {
-            getServiceBillById(wo.serviceBillId).then(setBill).catch(() => {});
+            getServiceBillById(wo.serviceBillId).then(setBill).catch(() => { });
         }
     }, [wo?.serviceBillId, bill]);
 
@@ -153,6 +165,117 @@ const WorkOrderDetail = () => {
             }).catch(() => { }).finally(() => setPartsLoading(false));
         }
     }, [wo?.branchId, branchId]);
+
+    const matchGpsDevice = (devices: any[], plate?: string, vin?: string) => {
+        if (!plate && !vin) return null;
+        const cleanPlate = plate ? plate.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+        const cleanVin = vin ? vin.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+
+        // 1. First pass: try exact matches (strongest match first)
+        let found = devices.find(d => {
+            const dName = d.deviceName ? String(d.deviceName).trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+            const dPlate = d.plateNum || d.plateNo || d.licencePlate || d.plate || d.plateNumber;
+            const dPlateClean = dPlate ? String(dPlate).trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+            const dImei = d.imei ? String(d.imei).trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+
+            if (cleanPlate && (dName === cleanPlate || dPlateClean === cleanPlate)) {
+                return true;
+            }
+            if (cleanVin && (dName === cleanVin || dImei === cleanVin)) {
+                return true;
+            }
+            return false;
+        });
+
+        if (found) return found;
+
+        // 2. Second pass: try partial/contained matches if length of query is reasonable (>= 4 chars)
+        found = devices.find(d => {
+            const dName = d.deviceName ? String(d.deviceName).trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+            const dPlate = d.plateNum || d.plateNo || d.licencePlate || d.plate || d.plateNumber;
+            const dPlateClean = dPlate ? String(dPlate).trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+            const dImei = d.imei ? String(d.imei).trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+
+            if (cleanPlate && cleanPlate.length >= 4 && (dName.includes(cleanPlate) || dPlateClean.includes(cleanPlate))) {
+                return true;
+            }
+            if (cleanVin && cleanVin.length >= 4 && (dImei.includes(cleanVin) || dName.includes(cleanVin))) {
+                return true;
+            }
+            return false;
+        });
+
+        return found;
+    };
+
+    const loadGps = useCallback(async (imei: string | undefined, plate: string, vin: string) => {
+        setGpsLoading(true);
+        try {
+            let activeImei = imei;
+            let matchType = '';
+
+            if (!activeImei) {
+                // Fetch all GPS devices and try to auto-match by plate number or VIN
+                const devices = await getGpsDevices();
+                const matchedDevice = matchGpsDevice(devices, plate, vin);
+                if (matchedDevice) {
+                    activeImei = matchedDevice.imei;
+                    matchType = `Auto-matched GPS (Plate/Name: ${matchedDevice.plateNum || matchedDevice.deviceName || activeImei})`;
+                }
+            } else {
+                matchType = 'Configured GPS Tracker';
+            }
+
+            setResolvedImei(activeImei || '');
+
+            if (activeImei) {
+                const [locationData, mileageData, trackData, obdResponse] = await Promise.all([
+                    getVehicleGpsLocation(activeImei),
+                    getVehicleGpsMileage(activeImei).catch(() => []),
+                    getVehicleGpsTrack(activeImei).catch(() => []),
+                    getVehicleGpsObdData(activeImei).catch((err) => {
+                        console.error("[GPS Component] Failed to load OBD data:", err);
+                        return null;
+                    })
+                ]);
+                console.log(gpsMileage, "gpsMileage")
+                setGpsData(locationData ? { ...locationData, matchType, imei: activeImei } : null);
+                setGpsMileage(mileageData && mileageData.length > 0 ? mileageData[0] : null);
+                console.log(trackData, 'trackData');
+                setGpsTrack(trackData || []);
+                
+                console.log("[GPS Component] OBD API response:", obdResponse);
+                const obdRecord = obdResponse?.data?.result?.[0] || obdResponse?.result?.[0] || null;
+                console.log("[GPS Component] OBD resolved record:", obdRecord);
+                setObdData(obdRecord);
+            } else {
+                setGpsData(null);
+                setGpsMileage(null);
+                setGpsTrack([]);
+                setObdData(null);
+            }
+        } catch (err) {
+            console.error('Failed to load GPS location', err);
+        } finally {
+            setGpsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        const vehicleObj = typeof wo?.vehicleId === 'object' ? wo.vehicleId : null;
+        const imei = vehicleObj?.gpsSerialNumber;
+        const plate = vehicleObj?.legalDocs?.registrationNumber || '';
+        const vin = vehicleObj?.basicDetails?.vin || '';
+
+        if ((imei || plate || vin) && activeTab === 'overview') {
+            loadGps(imei, plate, vin);
+        } else {
+            setGpsData(null);
+            setGpsMileage(null);
+            setGpsTrack([]);
+            setResolvedImei('');
+        }
+    }, [wo?.vehicleId, activeTab, loadGps]);
 
     const handleBackendError = (err: any) => {
         const msg = (err.response?.data?.message || err.message || '').toLowerCase();
@@ -306,8 +429,8 @@ const WorkOrderDetail = () => {
 
                         {wo.status === 'READY_FOR_RELEASE' && (
                             <div className="flex flex-col gap-2">
-                                <button 
-                                    disabled={actionLoading || !bill || bill.paymentStatus !== 'PAID'} 
+                                <button
+                                    disabled={actionLoading || !bill || bill.paymentStatus !== 'PAID'}
                                     className={`btn-primary text-xs !py-2 !px-4 ${(!bill || bill.paymentStatus !== 'PAID') ? 'opacity-50 !cursor-not-allowed grayscale' : ''}`}
                                     onClick={() => {
                                         const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
@@ -348,6 +471,37 @@ const WorkOrderDetail = () => {
                     </div>
 
                     <div className="space-y-4">
+                        {(() => {
+                            const vehicleObj = typeof wo.vehicleId === 'object' ? wo.vehicleId : null;
+                            if (!vehicleObj) return null;
+
+                            const make = vehicleObj.basicDetails?.make || '';
+                            const model = vehicleObj.basicDetails?.model || '';
+                            const year = vehicleObj.basicDetails?.year || '';
+                            const vin = vehicleObj.basicDetails?.vin || 'N/A';
+                            const plateNumber = vehicleObj.legalDocs?.registrationNumber || 'N/A';
+
+                            return (
+                                <div className="p-3 rounded-lg border space-y-2 text-xs" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
+                                    <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Vehicle Info</div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <span className="block text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Vehicle</span>
+                                            <span className="font-semibold text-white">{make} {model} {year}</span>
+                                        </div>
+                                        <div>
+                                            <span className="block text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Plate Number</span>
+                                            <span className="font-semibold text-white font-mono">{plateNumber}</span>
+                                        </div>
+                                        <div className="col-span-2 border-t pt-1.5" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                                            <span className="block text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>VIN / Chassis No.</span>
+                                            <span className="font-semibold text-white font-mono">{vin}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
                         <div>
                             <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
                                 {t('workOrders.detail.odometerAtEntry') || 'Odometer at Entry (KM)'}
@@ -459,7 +613,7 @@ const WorkOrderDetail = () => {
                                     setShowAdditionalWorkModal(false);
                                     setAdditionalWorkScope('');
                                     setAdditionalWorkTask('');
-                                    load(); 
+                                    load();
                                     return res;
                                 })}
                             >
@@ -482,41 +636,254 @@ const WorkOrderDetail = () => {
                 ))}
             </div>
 
-            {/* ══════════════════ OVERVIEW TAB ══════════════════ */}
+            {/* ── OVERVIEW TAB ── */}
             {activeTab === 'overview' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="glass-card p-5 space-y-4">
-                        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.overview')}</h3>
-                        <InfoRow label={t('dashboard.table.type')} value={t(`workOrders.types.${wo.workOrderType.toLowerCase()}`, { defaultValue: wo.workOrderType.replace(/_/g, ' ') })} />
-                        <InfoRow label={t('dashboard.table.priority')} value={t(`workOrders.priorities.${wo.priority.toLowerCase()}`, { defaultValue: wo.priority })} />
-                        <InfoRow label={t('workOrders.create.vehicle')} value={vehicleLabel()} />
-                        {(() => {
-                            const v = wo.vehicleId as any;
-                            if (v?.currentDriver) {
-                                return (
-                                    <InfoRow 
-                                        label="Assigned Driver" 
-                                        value={`${v.currentDriver.personalInfo?.fullName} (${v.currentDriver.driverId}) ${v.currentDriver.personalInfo?.phone || ''}`}
-                                    />
-                                );
-                            }
-                            return null;
-                        })()}
-                        <InfoRow label={t('common.created')} value={fmtDate(wo.createdAt)} />
-                        <InfoRow label={t('common.updated')} value={fmtDate(wo.updatedAt)} />
-                    </div>
-                    <div className="glass-card p-5 space-y-4">
-                        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.faultCost')}</h3>
-                        <div>
-                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('workOrders.create.fault')}</p>
-                            <p className="text-sm mt-1" style={{ color: 'var(--text-main)' }}>{wo.faultDescription}</p>
+                <div className="space-y-4 animate-fadeInUp">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="glass-card p-5 space-y-4">
+                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.overview')}</h3>
+                            <InfoRow label={t('dashboard.table.type')} value={t(`workOrders.types.${wo.workOrderType.toLowerCase()}`, { defaultValue: wo.workOrderType.replace(/_/g, ' ') })} />
+                            <InfoRow label={t('dashboard.table.priority')} value={t(`workOrders.priorities.${wo.priority.toLowerCase()}`, { defaultValue: wo.priority })} />
+                            <InfoRow label={t('workOrders.create.vehicle')} value={vehicleLabel()} />
+                            {(() => {
+                                const v = wo.vehicleId as any;
+                                if (v?.currentDriver) {
+                                    return (
+                                        <InfoRow
+                                            label="Assigned Driver"
+                                            value={`${v.currentDriver.personalInfo?.fullName} (${v.currentDriver.driverId}) ${v.currentDriver.personalInfo?.phone || ''}`}
+                                        />
+                                    );
+                                }
+                                return null;
+                            })()}
+                            <InfoRow label={t('common.created')} value={fmtDate(wo.createdAt)} />
+                            <InfoRow label={t('common.updated')} value={fmtDate(wo.updatedAt)} />
                         </div>
-                        <InfoRow label={t('workOrders.create.labourHrs')} value={String(wo.estimatedLabourHours)} />
-                        <InfoRow label="Actual Labour Hours" value={String(wo.actualLabourHours)} />
-                        <InfoRow label={t('workOrders.create.partsCost')} value={`$${wo.estimatedPartsCost.toFixed(2)}`} />
-                        <InfoRow label="Actual Parts Cost" value={`$${wo.actualPartsCost.toFixed(2)}`} />
-                        {wo.notes && <InfoRow label={t('workOrders.create.notes')} value={wo.notes} />}
+                        <div className="glass-card p-5 space-y-4">
+                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.faultCost')}</h3>
+                            <div>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('workOrders.create.fault')}</p>
+                                <p className="text-sm mt-1" style={{ color: 'var(--text-main)' }}>{wo.faultDescription}</p>
+                            </div>
+                            <InfoRow label={t('workOrders.create.labourHrs')} value={String(wo.estimatedLabourHours)} />
+                            <InfoRow label="Actual Labour Hours" value={String(wo.actualLabourHours)} />
+                            <InfoRow label={t('workOrders.create.partsCost')} value={`$${wo.estimatedPartsCost.toFixed(2)}`} />
+                            <InfoRow label="Actual Parts Cost" value={`$${wo.actualPartsCost.toFixed(2)}`} />
+                            {wo.notes && <InfoRow label={t('workOrders.create.notes')} value={wo.notes} />}
+                        </div>
                     </div>
+
+                    {/* GPS Section */}
+                    {(() => {
+                        const vehicleObj = typeof wo.vehicleId === 'object' ? wo.vehicleId : null;
+                        const gpsImei = vehicleObj?.gpsSerialNumber;
+                        const plate = vehicleObj?.legalDocs?.registrationNumber || '';
+                        const vin = vehicleObj?.basicDetails?.vin || '';
+
+                        return (
+                            <div className="glass-card p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-semibold flex items-center gap-2 flex-wrap" style={{ color: 'var(--text-main)' }}>
+                                        <MapPin size={16} className="text-lime" style={{ color: 'var(--brand-lime)' }} /> Real-time GPS Tracking
+                                        {gpsData?.matchType && (
+                                            <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] uppercase tracking-wider font-bold">
+                                                {gpsData.matchType}
+                                            </span>
+                                        )}
+                                    </h3>
+                                    <button
+                                        className="btn-secondary !py-1 !px-2.5 text-[10px] uppercase font-bold flex items-center gap-1.5"
+                                        onClick={() => loadGps(gpsImei, plate, vin)}
+                                        disabled={gpsLoading}
+                                    >
+                                        {gpsLoading ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                                        Refresh GPS Status
+                                    </button>
+                                </div>
+
+                                {gpsLoading && !gpsData ? (
+                                    <div className="flex items-center justify-center py-10">
+                                        <Loader2 className="animate-spin text-lime" size={24} style={{ color: 'var(--brand-lime)' }} />
+                                        <span className="text-xs text-muted-foreground ml-2" style={{ color: 'var(--text-muted)' }}>Fetching GPS tracking data...</span>
+                                    </div>
+                                ) : !gpsData ? (
+                                    <div className="text-center py-6 border border-dashed rounded-lg border-white/10" style={{ background: 'rgba(255,255,255,0.01)' }}>
+                                        <p className="text-xs text-muted-foreground" style={{ color: 'var(--text-muted)' }}>
+                                            {!resolvedImei ? 'No direct GPS IMEI configured, and auto-match could not find a device in the GPS registry.' : `Unable to fetch current GPS coordinates or device offline (IMEI: ${resolvedImei}).`}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>IMEI Number</span>
+                                            <span className="text-xs font-semibold text-white font-mono">{gpsData.imei || resolvedImei}</span>
+                                        </div>
+
+                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Coordinates</span>
+                                            <span className="text-xs font-semibold text-white font-mono">{gpsData.lat.toFixed(5)}, {gpsData.lng.toFixed(5)}</span>
+                                        </div>
+
+                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Engine Status (ACC)</span>
+                                            <span className={`text-xs font-semibold uppercase tracking-wider ${gpsData.accStatus === 1 ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
+                                                ● {gpsData.accStatus === 1 ? 'ON' : 'OFF'}
+                                            </span>
+                                        </div>
+
+                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Speed / Battery</span>
+                                            <span className="text-xs font-semibold text-white">{gpsData.speed} KM/H • 🔋 {gpsData.electQuantity}%</span>
+                                        </div>
+
+                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Last Sync (GPS Time)</span>
+                                            <span className="text-xs font-semibold text-white font-mono">{new Date(gpsData.gpsTime || gpsData.hbTime).toLocaleString()}</span>
+                                        </div>
+
+                                        {gpsMileage && (
+                                            <>
+                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Total Odometer Mileage</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {(gpsMileage.totalMileage / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} KM
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Today's Trip Distance</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {(gpsMileage.distance / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} KM
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Today's Average Speed</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {gpsMileage.avgSpeed} KM/H
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Today's Drive Duration</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {gpsMileage.elapsed > 0 ? `${Math.floor(gpsMileage.elapsed / 60)}m ${gpsMileage.elapsed % 60}s` : '0m'}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        )}
+
+                                        {obdData && (
+                                            <>
+                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Odometer Reading</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {obdData.odometerReading ? `${parseFloat(obdData.odometerReading).toLocaleString(undefined, { maximumFractionDigits: 1 })} KM` : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Accum. Mileage</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {obdData.deviceAccumulatedMileage ? `${parseFloat(obdData.deviceAccumulatedMileage).toLocaleString(undefined, { maximumFractionDigits: 1 })} KM` : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Remaining Fuel</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {obdData.remainingFuelPercentage ? `${obdData.remainingFuelPercentage}%` : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Engine RPM</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {obdData.currentRPM ? `${obdData.currentRPM} RPM` : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Coolant Temp</span>
+                                                    <span className="text-xs font-semibold text-white font-mono">
+                                                        {obdData.coolantTemperature ? `${obdData.coolantTemperature}°C` : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Battery Voltage</span>
+                                                    <span className="text-xs font-semibold text-white font-mono font-mono">
+                                                        {obdData.vehicleBatterVoltage ? `${(parseFloat(obdData.vehicleBatterVoltage) / 10).toFixed(1)} V` : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                {obdData.vin && (
+                                                    <div className="sm:col-span-2 p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
+                                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Vehicle VIN</span>
+                                                        <span className="text-xs font-semibold text-white font-mono break-all">{obdData.vin}</span>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {gpsData.locDesc && (
+                                            <div className="sm:col-span-2 md:col-span-3 p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Current Address</span>
+                                                <span className="text-xs font-medium text-white">{gpsData.locDesc}</span>
+                                            </div>
+                                        )}
+
+                                        <div className={`p-0.5 flex items-center justify-center ${gpsData.locDesc ? 'col-span-1 sm:col-span-2 md:col-span-4' : 'sm:col-span-2 md:col-span-4'}`}>
+                                            <a
+                                                href={`https://www.google.com/maps/search/?api=1&query=${gpsData.lat},${gpsData.lng}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="btn-primary w-full text-center text-xs flex items-center justify-center gap-1.5 !py-2.5"
+                                            >
+                                                <ExternalLink size={12} /> View on Google Maps
+                                            </a>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {gpsTrack && gpsTrack.length > 0 && (
+                                    <div className="border-t pt-4" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                                        <h4 className="text-xs font-semibold mb-2.5 flex items-center gap-1.5" style={{ color: 'var(--text-main)' }}>
+                                            <Clock size={13} className="text-lime" style={{ color: 'var(--brand-lime)' }} /> Recent Historical Route Points
+                                        </h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-[11px] border-collapse text-left">
+                                                <thead>
+                                                    <tr className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Time</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Latitude</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Longitude</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Speed</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Mileage</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-right" style={{ color: 'var(--text-muted)' }}>Link</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {gpsTrack.map((pt, idx) => (
+                                                        <tr key={idx} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.02)' }}>
+                                                            <td className="py-2 text-white font-mono">{pt.gpsTime}</td>
+                                                            <td className="py-2 text-white font-mono">{pt.lat.toFixed(5)}</td>
+                                                            <td className="py-2 text-white font-mono">{pt.lng.toFixed(5)}</td>
+                                                            <td className="py-2 text-white font-mono">{pt.gpsSpeed !== undefined ? pt.gpsSpeed : (pt.speed || 0)} km/h</td>
+                                                            <td className="py-2 text-white font-mono">{pt.mileage !== undefined ? `${(pt.mileage / 1000).toFixed(2)} km` : 'N/A'}</td>
+                                                            <td className="py-2 text-right">
+                                                                <a
+                                                                    href={`https://www.google.com/maps/search/?api=1&query=${pt.lat},${pt.lng}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-lime hover:underline flex items-center justify-end gap-1 font-semibold"
+                                                                    style={{ color: 'var(--brand-lime)' }}
+                                                                >
+                                                                    Map <ExternalLink size={10} />
+                                                                </a>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
 
@@ -854,7 +1221,7 @@ const WorkOrderDetail = () => {
                                                 </div>
                                                 <div className="absolute top-3 right-3 flex gap-1">
                                                     <div className="badge badge-lime text-[9px] bg-black/50 backdrop-blur-md border-[var(--brand-lime)] text-[var(--brand-lime)] font-mono">{rp.label}</div>
-                                                    <button 
+                                                    <button
                                                         className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
                                                         title="Remove Photo"
                                                         disabled={actionLoading}
@@ -924,13 +1291,12 @@ const WorkOrderDetail = () => {
                                     <div className="flex gap-1.5">
                                         {(['PASS', 'FAIL', 'NA'] as const).map((r) => (
                                             <button key={r}
-                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all transform active:scale-95 ${
-                                                    qc.result === r 
-                                                        ? r === 'PASS' ? 'bg-[#27AE60] text-white shadow-lg shadow-green-500/20' 
-                                                        : r === 'FAIL' ? 'bg-[#E74C3C] text-white shadow-lg shadow-red-500/20' 
-                                                        : 'bg-gray-500 text-white shadow-lg shadow-gray-500/20'
-                                                        : 'bg-[var(--bg-input)] text-[var(--text-dim)] border border-[var(--border-main)] opacity-50 hover:opacity-100'
-                                                }`}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all transform active:scale-95 ${qc.result === r
+                                                    ? r === 'PASS' ? 'bg-[#27AE60] text-white shadow-lg shadow-green-500/20'
+                                                        : r === 'FAIL' ? 'bg-[#E74C3C] text-white shadow-lg shadow-red-500/20'
+                                                            : 'bg-gray-500 text-white shadow-lg shadow-gray-500/20'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-dim)] border border-[var(--border-main)] opacity-50 hover:opacity-100'
+                                                    }`}
                                                 disabled={actionLoading}
                                                 onClick={() => doAction(() => submitQC(id!, [{ checkItem: qc.checkItem, result: r }]))}
                                             >
@@ -962,7 +1328,7 @@ const WorkOrderDetail = () => {
                                 <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
                                     <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button 
+                                        <button
                                             className="w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
                                             title="Delete Photo"
                                             disabled={actionLoading}
@@ -1012,8 +1378,8 @@ const WorkOrderDetail = () => {
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
                                                 <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase ml-1">Hourly Rate (AED)</label>
-                                                <input 
-                                                    type="number" 
+                                                <input
+                                                    type="number"
                                                     id="hourlyRate"
                                                     value={hourlyRate}
                                                     onChange={(e) => setHourlyRate(Number(e.target.value))}
@@ -1022,7 +1388,7 @@ const WorkOrderDetail = () => {
                                             </div>
                                             <div className="space-y-1.5">
                                                 <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase ml-1">Tax Profile</label>
-                                                <select 
+                                                <select
                                                     id="taxProfile"
                                                     value={taxProfileId}
                                                     onChange={(e) => {
@@ -1056,7 +1422,7 @@ const WorkOrderDetail = () => {
                                                             <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
                                                             <p className="text-[10px] text-[var(--text-dim)] mt-0.5">Toggle if this bill is to be paid by the driver</p>
                                                         </div>
-                                                        <button 
+                                                        <button
                                                             className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
                                                             onClick={() => setIsDriverBilled(!isDriverBilled)}
                                                         >
@@ -1088,12 +1454,12 @@ const WorkOrderDetail = () => {
                                                         </div>
                                                     </div>
 
-                                                    <button 
+                                                    <button
                                                         className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                                                         disabled={actionLoading || preBillValue <= 0 || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
                                                         onClick={() => {
-                                                            doAction(() => generateBill(id!, { 
-                                                                hourlyRate: Number(hourlyRate), 
+                                                            doAction(() => generateBill(id!, {
+                                                                hourlyRate: Number(hourlyRate),
                                                                 taxRate: Number(taxRate),
                                                                 taxName,
                                                                 taxProfileId,
@@ -1104,7 +1470,7 @@ const WorkOrderDetail = () => {
                                                         {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
                                                         Generate Final Bill
                                                     </button>
-                                                    
+
                                                     {preBillValue <= 0 && (
                                                         <div className="flex items-center justify-center gap-2 text-red-500/80">
                                                             <AlertTriangle size={14} />
@@ -1114,7 +1480,7 @@ const WorkOrderDetail = () => {
                                                 </>
                                             );
                                         })()}
-                                        
+
                                         {!['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED'].includes(wo.status) && (
                                             <div className="flex items-center justify-center gap-2 text-red-500/80">
                                                 <AlertTriangle size={14} />
@@ -1165,19 +1531,18 @@ const WorkOrderDetail = () => {
                                         </div>
 
                                         <div className="flex gap-4">
-                                            <button 
+                                            <button
                                                 className="w-full h-12 bg-transparent hover:bg-white/5 border border-[var(--border-main)] text-[var(--text-main)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
                                                 onClick={() => navigate(`/service-bills`)}
                                             >
                                                 Go to Bills Management
                                                 <ChevronRight size={16} />
                                             </button>
-                                            <button 
-                                                className={`w-full h-12 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${
-                                                    bill?.paymentStatus === 'PAID' 
-                                                    ? 'bg-green-500/20 text-green-500 border border-green-500/30 cursor-default' 
+                                            <button
+                                                className={`w-full h-12 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${bill?.paymentStatus === 'PAID'
+                                                    ? 'bg-green-500/20 text-green-500 border border-green-500/30 cursor-default'
                                                     : 'bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] text-[var(--brand-black)] active:scale-[0.98]'
-                                                }`}
+                                                    }`}
                                                 disabled={actionLoading || bill?.paymentStatus === 'PAID'}
                                                 onClick={() => {
                                                     if (wo.serviceBillId) {
@@ -1192,14 +1557,14 @@ const WorkOrderDetail = () => {
                                                                 toast.success('Bill is already paid');
                                                                 return;
                                                             }
-                                                            
+
                                                             if (currentBill.status === 'DRAFT' || currentBill.status === 'PENDING_APPROVAL') {
                                                                 await approveBill(wo.serviceBillId!);
                                                             }
-                                                            
+
                                                             await markBillPaid(wo.serviceBillId!, currentBill.totalAmount, 'Cash');
                                                             toast.success('Payment completed');
-                                                            
+
                                                             // Force a refresh of everything
                                                             await load();
                                                         });
