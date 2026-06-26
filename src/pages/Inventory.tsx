@@ -398,7 +398,7 @@ const Inventory = () => {
                   <tr key={part._id} className="hover:bg-white/[0.02] transition-colors group">
                     <td className="!pl-6">
                       <div>
-                        <p className="text-sm font-bold truncate max-w-[200px]" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
+                        <p className="text-sm font-bold" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
                         <p className="text-[10px] font-mono opacity-50 uppercase">{part.partNumber}</p>
                       </div>
                     </td>
