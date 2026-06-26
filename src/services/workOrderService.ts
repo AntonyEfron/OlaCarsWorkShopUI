@@ -1,4 +1,5 @@
 import api from './api';
+import { Vehicle } from './vehicleService';
 
 // ── Enums / Types ────────────────────────────────────────────────────
 
@@ -90,25 +91,7 @@ export interface WorkOrder {
     workOrderNumber: string;
     workOrderType: WorkOrderType;
     status: WorkOrderStatus;
-    vehicleId: string | {
-        _id: string;
-        basicDetails: {
-            make: string;
-            model: string;
-            year: number;
-            vin: string;
-        };
-        status: string;
-        currentDriver?: {
-            _id: string;
-            personalInfo?: {
-                fullName: string;
-                phone?: string;
-                email?: string;
-            };
-            driverId: string;
-        };
-    };
+    vehicleId: string | Vehicle;
     branchId: string | Record<string, unknown>;
     priority: Priority;
     slaDeadline?: string;
