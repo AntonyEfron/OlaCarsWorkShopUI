@@ -120,6 +120,7 @@ export interface WorkOrder {
     releaseNotes?: string;
     statusHistory: StatusHistoryEntry[];
     createdBy?: string;
+    releasedAt?: string;
     createdAt: string;
     updatedAt: string;
 }
@@ -341,10 +342,10 @@ export interface TaxProfile {
 
 export const getTaxProfiles = async (): Promise<TaxProfile[]> => {
     try {
-        const response = await api.get('/api/tax', { 
+        const response = await api.get('/api/tax', {
             params: { isActive: 'true' },
             // @ts-ignore
-            skipToast: true 
+            skipToast: true
         });
         return response.data.data || response.data || [];
     } catch {
@@ -353,13 +354,13 @@ export const getTaxProfiles = async (): Promise<TaxProfile[]> => {
 };
 
 export const generateBill = async (
-    workOrderId: string, 
-    options?: { 
-        hourlyRate?: number; 
-        taxRate?: number; 
+    workOrderId: string,
+    options?: {
+        hourlyRate?: number;
+        taxRate?: number;
         taxName?: string;
         taxProfileId?: string;
-        discount?: number; 
+        discount?: number;
         notes?: string;
         isDriverBilled?: boolean;
     }

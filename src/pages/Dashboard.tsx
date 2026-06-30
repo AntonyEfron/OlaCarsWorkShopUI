@@ -71,7 +71,7 @@ const Dashboard = () => {
     const loadData = async () => {
         try {
             const [woData, lowStockData, analyticsData] = await Promise.all([
-                getWorkOrders(),
+                getWorkOrders({ branchId }),
                 getLowStock(branchId),
                 getWorkshopAnalytics(branchId, startDate, endDate)
             ]);
@@ -86,8 +86,22 @@ const Dashboard = () => {
         }
     };
 
-    const getCount = (statuses: WorkOrderStatus[]) =>
-        workOrders.filter((wo) => statuses.includes(wo.status)).length;
+    const totalInside = workOrders.filter(wo => !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const underPreventive = workOrders.filter(wo => wo.workOrderType === 'PREVENTIVE' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const underCorrective = workOrders.filter(wo => wo.workOrderType === 'CORRECTIVE' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const underAccident = workOrders.filter(wo => wo.workOrderType === 'ACCIDENT' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const underWearItem = workOrders.filter(wo => wo.workOrderType === 'WEAR_ITEM' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const anyOtherCategory = workOrders.filter(wo => !['PREVENTIVE', 'CORRECTIVE', 'ACCIDENT', 'WEAR_ITEM'].includes(wo.workOrderType) && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const releasedInRange = workOrders.filter(wo => {
+        const isReleasedStatus = ['VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status);
+        if (!isReleasedStatus) return false;
+        const dateToUse = wo.releasedAt || wo.updatedAt;
+        if (!dateToUse) return false;
+        const dateStr = dateToUse.split('T')[0];
+        return dateStr >= startDate && dateStr <= endDate;
+    }).length;
+
+
 
     const recentOrders = [...workOrders]
         .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -144,25 +158,25 @@ const Dashboard = () => {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <input 
-                        type="date" 
+                    <input
+                        type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
                         className="px-3 py-1.5 rounded-lg border text-sm"
-                        style={{ 
-                            backgroundColor: 'var(--bg-card)', 
+                        style={{
+                            backgroundColor: 'var(--bg-card)',
                             borderColor: 'var(--border-main)',
                             color: 'var(--text-main)'
                         }}
                     />
                     <span className="text-sm" style={{ color: 'var(--text-muted)' }}>to</span>
-                    <input 
-                        type="date" 
+                    <input
+                        type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
                         className="px-3 py-1.5 rounded-lg border text-sm"
-                        style={{ 
-                            backgroundColor: 'var(--bg-card)', 
+                        style={{
+                            backgroundColor: 'var(--bg-card)',
                             borderColor: 'var(--border-main)',
                             color: 'var(--text-main)'
                         }}
@@ -170,48 +184,180 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* Stat Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                {STATUS_GROUPS.map((group) => {
-                    const count = getCount(group.statuses);
-                    return (
-                        <div key={group.label} className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
-                            style={{ borderColor: group.color + '33' }}
-                            onClick={() => navigate('/work-orders')}
-                        >
-                            <div className="flex items-center justify-between">
-                                <div
-                                    className="w-5 h-5 rounded-xl flex items-center justify-center"
-                                    style={{ background: group.color + '1A' }}
-                                >
-                                    <group.icon size={20} style={{ color: group.color }} />
-                                </div>
-                                <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
-                            </div>
-                            <div className="stat-value" style={{ color: group.color }}>{count}</div>
-                            <div className="stat-label">{group.label}</div>
-                        </div>
-                    );
-                })}
-
-                {/* Low Stock KPI */}
-                <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
-                    style={{ borderColor: '#EF444433' }}
-                    onClick={() => navigate('/requirements?tab=low_stock')}
+            {/* KPI Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Hero Card: Workshop Active Occupancy */}
+                <div className="stat-card p-6 lg:col-span-1 flex flex-col justify-between cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                    style={{ borderColor: 'rgba(200, 230, 0, 0.25)', minHeight: '260px' }}
+                    onClick={() => navigate('/work-orders')}
                 >
-                    <div className="flex items-center justify-between">
-                        <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center"
-                            style={{ background: '#EF44441A' }}
-                        >
-                            <PackageMinus size={20} style={{ color: '#EF4444' }} />
+                    <div>
+                        <div className="flex items-center justify-between mb-4">
+                            <span className="text-[11px] font-black uppercase tracking-widest text-lime" style={{ color: 'var(--brand-lime)' }}>
+                                Workshop Active Occupancy
+                            </span>
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(200, 230, 0, 0.1)' }}>
+                                <ClipboardList size={18} style={{ color: 'var(--brand-lime)' }} />
+                            </div>
                         </div>
-                        <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        <div className="text-4xl font-extrabold text-white mb-1">{totalInside}</div>
+                        <span className="text-xs text-gray-400">Total Vehicles Currently Inside Workshop</span>
                     </div>
-                    <div className="stat-value" style={{ color: '#EF4444' }}>{lowStockCount}</div>
-                    <div className="stat-label">Low Stock Parts</div>
+
+                    {/* Stacked Proportional Bar Chart */}
+                    <div className="mt-6 space-y-3">
+                        <div className="h-2 w-full rounded-full overflow-hidden flex bg-white/5">
+                            {totalInside > 0 ? (
+                                <>
+                                    <div style={{ width: `${(underPreventive / totalInside) * 100}%`, backgroundColor: '#27AE60' }} title="Preventive" />
+                                    <div style={{ width: `${(underCorrective / totalInside) * 100}%`, backgroundColor: '#E67E22' }} title="Corrective" />
+                                    <div style={{ width: `${(underAccident / totalInside) * 100}%`, backgroundColor: '#EF4444' }} title="Accident" />
+                                    <div style={{ width: `${(underWearItem / totalInside) * 100}%`, backgroundColor: '#3498DB' }} title="Wear Item" />
+                                    <div style={{ width: `${(anyOtherCategory / totalInside) * 100}%`, backgroundColor: '#9B59B6' }} title="Other" />
+                                </>
+                            ) : (
+                                <div className="w-full bg-white/10" />
+                            )}
+                        </div>
+                        
+                        {/* Mini Legend */}
+                        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-gray-400 font-medium">
+                            <span className="flex items-center gap-1">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#27AE60' }} />
+                                Prev: {underPreventive}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#E67E22' }} />
+                                Corr: {underCorrective}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#EF4444' }} />
+                                Acc: {underAccident}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#3498DB' }} />
+                                Wear: {underWearItem}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#9B59B6' }} />
+                                Other: {anyOtherCategory}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Sub KPI Cards Grid */}
+                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {/* Preventive */}
+                    <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                        style={{ borderColor: '#27AE6033' }}
+                        onClick={() => navigate('/work-orders?type=PREVENTIVE')}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#27AE601A' }}>
+                                <Wrench size={20} style={{ color: '#27AE60' }} />
+                            </div>
+                            <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        </div>
+                        <div className="stat-value" style={{ color: '#27AE60' }}>{underPreventive}</div>
+                        <div className="stat-label">UNDER PREVENTIVE MAINTENANCE</div>
+                    </div>
+
+                    {/* Corrective */}
+                    <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                        style={{ borderColor: '#E67E2233' }}
+                        onClick={() => navigate('/work-orders?type=CORRECTIVE')}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#E67E221A' }}>
+                                <Clock size={20} style={{ color: '#E67E22' }} />
+                            </div>
+                            <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        </div>
+                        <div className="stat-value" style={{ color: '#E67E22' }}>{underCorrective}</div>
+                        <div className="stat-label">UNDER CORRECTIVE REPAIRING</div>
+                    </div>
+
+                    {/* Accident */}
+                    <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                        style={{ borderColor: '#EF444433' }}
+                        onClick={() => navigate('/work-orders?type=ACCIDENT')}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#EF44441A' }}>
+                                <AlertTriangle size={20} style={{ color: '#EF4444' }} />
+                            </div>
+                            <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        </div>
+                        <div className="stat-value" style={{ color: '#EF4444' }}>{underAccident}</div>
+                        <div className="stat-label">UNDER ACCIDENT REPAIRING</div>
+                    </div>
+
+                    {/* Wear Item */}
+                    <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                        style={{ borderColor: '#3498DB33' }}
+                        onClick={() => navigate('/work-orders?type=WEAR_ITEM')}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#3498DB1A' }}>
+                                <Wrench size={20} style={{ color: '#3498DB' }} />
+                            </div>
+                            <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        </div>
+                        <div className="stat-value" style={{ color: '#3498DB' }}>{underWearItem}</div>
+                        <div className="stat-label">UNDER WEAR ITEM REPLACEMENT</div>
+                    </div>
+
+                    {/* Other */}
+                    <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                        style={{ borderColor: '#9B59B633' }}
+                        onClick={() => navigate('/work-orders')}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#9B59B61A' }}>
+                                <ClipboardList size={20} style={{ color: '#9B59B6' }} />
+                            </div>
+                            <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        </div>
+                        <div className="stat-value" style={{ color: '#9B59B6' }}>{anyOtherCategory}</div>
+                        <div className="stat-label">ANY OTHER CATEGORY</div>
+                    </div>
+
+                    {/* Released */}
+                    <div className="stat-card group cursor-pointer hover:border-opacity-50 transition-all duration-200"
+                        style={{ borderColor: '#2ECC7133' }}
+                        onClick={() => navigate('/work-orders?status=VEHICLE_RELEASED')}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#2ECC711A' }}>
+                                <CheckCircle2 size={20} style={{ color: '#2ECC71' }} />
+                            </div>
+                            <ArrowRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-dim)' }} />
+                        </div>
+                        <div className="stat-value" style={{ color: '#2ECC71' }}>{releasedInRange}</div>
+                        <div className="stat-label">TOTAL VEHICLE RELEASED/ DAY</div>
+                    </div>
                 </div>
             </div>
+
+            {/* Low Stock Banner Alert */}
+            {lowStockCount > 0 && (
+                <div className="stat-card border-red bg-red/5 p-4 flex items-center justify-between cursor-pointer hover:bg-red/10 transition-all duration-200"
+                    style={{ borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                    onClick={() => navigate('/requirements?tab=low_stock')}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-red/10">
+                            <PackageMinus size={20} className="text-red-500 animate-pulse" style={{ color: '#EF4444' }} />
+                        </div>
+                        <div>
+                            <div className="font-semibold text-white text-sm">Low Stock Inventory Alert!</div>
+                            <p className="text-xs text-gray-400">There are {lowStockCount} parts currently running low in inventory. Click to view replenishment requirements.</p>
+                        </div>
+                    </div>
+                    <ArrowRight size={18} className="text-gray-400" />
+                </div>
+            )}
 
             {/* Analytics Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -222,20 +368,20 @@ const Dashboard = () => {
                             <ResponsiveContainer width="100%" height={400}>
                                 <LineChart data={analytics.workOrderTrends} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" />
-                                    <XAxis 
-                                        dataKey="date" 
+                                    <XAxis
+                                        dataKey="date"
                                         stroke="#9CA3AF"
                                         fontSize={12}
                                         tickLine={true}
                                         axisLine={true}
                                     />
-                                    <YAxis 
+                                    <YAxis
                                         stroke="#9CA3AF"
                                         fontSize={12}
                                         tickLine={true}
                                         axisLine={true}
                                     />
-                                    <RechartsTooltip 
+                                    <RechartsTooltip
                                         contentStyle={{ backgroundColor: '#1C1C1C', borderColor: '#374151', borderRadius: '8px', fontSize: '12px', color: '#FFFFFF' }}
                                         itemStyle={{ color: '#FFFFFF' }}
                                     />
@@ -274,7 +420,7 @@ const Dashboard = () => {
                                             <Cell key={`cell-${index}`} fill={entry.name === 'Healthy' ? '#27AE60' : '#EF4444'} />
                                         ))}
                                     </Pie>
-                                    <RechartsTooltip 
+                                    <RechartsTooltip
                                         contentStyle={{ backgroundColor: '#1C1C1C', borderColor: '#2A2A2A', borderRadius: '8px', fontSize: '12px', color: '#FFFFFF' }}
                                         itemStyle={{ color: '#FFFFFF' }}
                                     />

@@ -46,6 +46,29 @@ const ServiceBills: React.FC = () => {
   const itemsPerPage = 10;
   const selectedAccountCode = '4010';
 
+  const [kpiFilter, setKpiFilter] = useState<'ALL' | 'INVOICED' | 'NOT_INVOICED' | 'INVOICED_OLA' | 'PENDING_OLA' | 'INVOICED_CLIENT' | 'PENDING_CLIENT' | 'GATEPASS'>('ALL');
+
+  // KPI Aggregations
+  const totalInvoicesCount = bills.filter(b => b.status === 'APPROVED' || b.status === 'PAID').length;
+  const totalInvoicesAmount = bills.filter(b => b.status === 'APPROVED' || b.status === 'PAID').reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const notInvoicedCount = bills.filter(b => b.status === 'DRAFT' || b.status === 'PENDING_APPROVAL').length;
+  const notInvoicedAmount = bills.filter(b => b.status === 'DRAFT' || b.status === 'PENDING_APPROVAL').reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const invoicedOlaCount = bills.filter(b => !b.isDriverBilled && (b.status === 'APPROVED' || b.status === 'PAID')).length;
+  const invoicedOlaAmount = bills.filter(b => !b.isDriverBilled && (b.status === 'APPROVED' || b.status === 'PAID')).reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const pendingOlaCount = bills.filter(b => !b.isDriverBilled && (b.status === 'DRAFT' || b.status === 'PENDING_APPROVAL')).length;
+  const pendingOlaAmount = bills.filter(b => !b.isDriverBilled && (b.status === 'DRAFT' || b.status === 'PENDING_APPROVAL')).reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const invoicedClientCount = bills.filter(b => b.isDriverBilled && (b.status === 'APPROVED' || b.status === 'PAID')).length;
+  const invoicedClientAmount = bills.filter(b => b.isDriverBilled && (b.status === 'APPROVED' || b.status === 'PAID')).reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const pendingClientCount = bills.filter(b => b.isDriverBilled && (b.status === 'DRAFT' || b.status === 'PENDING_APPROVAL')).length;
+  const pendingClientAmount = bills.filter(b => b.isDriverBilled && (b.status === 'DRAFT' || b.status === 'PENDING_APPROVAL')).reduce((sum, b) => sum + b.totalAmount, 0);
+
+  const gatepassCount = bills.filter(b => ['VEHICLE_RELEASED', 'CLOSED', 'READY_FOR_RELEASE'].includes(b.workOrderId?.status || '')).length;
+
   useEffect(() => {
     loadBills();
   }, []);
@@ -130,6 +153,24 @@ const ServiceBills: React.FC = () => {
     if (billingTypeFilter === 'driver') matchesBillingType = bill.isDriverBilled === true;
     if (billingTypeFilter === 'workshop') matchesBillingType = !bill.isDriverBilled;
 
+    // Apply KPI filter overrides
+    if (kpiFilter === 'INVOICED') {
+      if (!(bill.status === 'APPROVED' || bill.status === 'PAID')) return false;
+    } else if (kpiFilter === 'NOT_INVOICED') {
+      if (!(bill.status === 'DRAFT' || bill.status === 'PENDING_APPROVAL')) return false;
+    } else if (kpiFilter === 'INVOICED_OLA') {
+      if (bill.isDriverBilled || !(bill.status === 'APPROVED' || bill.status === 'PAID')) return false;
+    } else if (kpiFilter === 'PENDING_OLA') {
+      if (bill.isDriverBilled || !(bill.status === 'DRAFT' || bill.status === 'PENDING_APPROVAL')) return false;
+    } else if (kpiFilter === 'INVOICED_CLIENT') {
+      if (!bill.isDriverBilled || !(bill.status === 'APPROVED' || bill.status === 'PAID')) return false;
+    } else if (kpiFilter === 'PENDING_CLIENT') {
+      if (!bill.isDriverBilled || !(bill.status === 'DRAFT' || bill.status === 'PENDING_APPROVAL')) return false;
+    } else if (kpiFilter === 'GATEPASS') {
+      const woStatus = bill.workOrderId?.status || '';
+      if (!['VEHICLE_RELEASED', 'CLOSED', 'READY_FOR_RELEASE'].includes(woStatus)) return false;
+    }
+
     return matchesSearch && matchesStatus && matchesBillingType;
   });
 
@@ -139,7 +180,7 @@ const ServiceBills: React.FC = () => {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, billingTypeFilter]);
+  }, [searchTerm, statusFilter, billingTypeFilter, kpiFilter]);
 
   return (
     <div className="p-6 space-y-6">
@@ -150,6 +191,157 @@ const ServiceBills: React.FC = () => {
           </h1>
           <p className="text-sm opacity-60">Manage workshop invoices and payments</p>
         </div>
+      </div>
+
+      {/* Stats Dashboard - Grouped Layout */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        {/* Card 1: Invoice Overview & Gatepasses */}
+        <div className="stat-card p-5 flex flex-col justify-between" style={{ borderColor: 'rgba(200, 230, 0, 0.25)' }}>
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[10px] font-black uppercase tracking-widest text-lime" style={{ color: 'var(--brand-lime)' }}>
+                Billing Overview
+              </span>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[rgba(200,230,0,0.1)]">
+                <Receipt size={18} style={{ color: 'var(--brand-lime)' }} />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {/* Total Invoice */}
+              <div className={`p-2.5 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'INVOICED' ? 'bg-white/5 border-[var(--brand-lime)]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'INVOICED' ? 'ALL' : 'INVOICED')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[var(--brand-lime)]" />
+                    Total Invoice (Approved/Paid)
+                  </span>
+                  <span className="font-bold text-white">{totalInvoicesCount}</span>
+                </div>
+                <div className="text-right text-[10px] text-gray-400 font-mono">${totalInvoicesAmount.toLocaleString()}</div>
+              </div>
+
+              {/* Not Invoiced */}
+              <div className={`p-2.5 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'NOT_INVOICED' ? 'bg-white/5 border-[#E67E22]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'NOT_INVOICED' ? 'ALL' : 'NOT_INVOICED')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#E67E22]" />
+                    Not Invoiced (Draft/Pending)
+                  </span>
+                  <span className="font-bold text-white">{notInvoicedCount}</span>
+                </div>
+                <div className="text-right text-[10px] text-gray-400 font-mono">${notInvoicedAmount.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-[var(--border-main)] flex items-center justify-between">
+            <div className={`flex-1 p-2 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'GATEPASS' ? 'bg-white/5 border-[var(--brand-lime)]' : 'border-transparent hover:bg-white/5'}`}
+              onClick={() => setKpiFilter(prev => prev === 'GATEPASS' ? 'ALL' : 'GATEPASS')}
+            >
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[var(--brand-lime)]" />
+                  Total Gatepass Issued
+                </span>
+                <span className="font-bold text-white">{gatepassCount} <span className="text-[10px] font-normal text-gray-400">vehicles</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Ola Cars Invoicing Status */}
+        <div className="stat-card p-5 flex flex-col justify-between" style={{ borderColor: 'rgba(230, 126, 34, 0.25)' }}>
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[10px] font-black uppercase tracking-widest text-orange-400">Ola Cars Invoicing</span>
+            <span className="text-[10px] bg-orange-500/10 text-orange-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Internal</span>
+          </div>
+
+          <div className="space-y-4 my-auto">
+            {/* Invoiced to Ola Cars */}
+            <div className={`p-3 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'INVOICED_OLA' ? 'bg-white/5 border-[#F39C12]' : 'border-transparent hover:bg-white/5'}`}
+              onClick={() => setKpiFilter(prev => prev === 'INVOICED_OLA' ? 'ALL' : 'INVOICED_OLA')}
+            >
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#F39C12]" />
+                  Invoiced to Ola Cars
+                </span>
+                <span className="font-bold text-white">{invoicedOlaCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                <span>Workshop Billed</span>
+                <span>${invoicedOlaAmount.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Pending Invoice to Ola Cars */}
+            <div className={`p-3 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'PENDING_OLA' ? 'bg-white/5 border-[#EF4444]' : 'border-transparent hover:bg-white/5'}`}
+              onClick={() => setKpiFilter(prev => prev === 'PENDING_OLA' ? 'ALL' : 'PENDING_OLA')}
+            >
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#EF4444]" />
+                  Pending Invoice to Ola Cars
+                </span>
+                <span className="font-bold text-white">{pendingOlaCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                <span>Pending Approval</span>
+                <span>${pendingOlaAmount.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Client/Driver Invoicing Status */}
+        <div className="stat-card p-5 flex flex-col justify-between" style={{ borderColor: 'rgba(155, 89, 182, 0.25)' }}>
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">Client / Driver Invoicing</span>
+            <span className="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">External</span>
+          </div>
+
+          <div className="space-y-4 my-auto">
+            {/* Invoiced to Client */}
+            <div className={`p-3 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'INVOICED_CLIENT' ? 'bg-white/5 border-[#F39C12]' : 'border-transparent hover:bg-white/5'}`}
+              onClick={() => setKpiFilter(prev => prev === 'INVOICED_CLIENT' ? 'ALL' : 'INVOICED_CLIENT')}
+            >
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#F39C12]" style={{ backgroundColor: 'rgb(244, 164, 96)' }} />
+                  Invoiced to Client
+                </span>
+                <span className="font-bold text-white">{invoicedClientCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                <span>Driver Billed</span>
+                <span>${invoicedClientAmount.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Pending Invoice to Client */}
+            <div className={`p-3 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'PENDING_CLIENT' ? 'bg-white/5 border-[#9B59B6]' : 'border-transparent hover:bg-white/5'}`}
+              onClick={() => setKpiFilter(prev => prev === 'PENDING_CLIENT' ? 'ALL' : 'PENDING_CLIENT')}
+            >
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#9B59B6]" />
+                  Pending Invoice to Clients
+                </span>
+                <span className="font-bold text-white">{pendingClientCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                <span>Pending Payment / Approval</span>
+                <span>${pendingClientAmount.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     Search,
@@ -37,14 +37,17 @@ const TYPE_OPTIONS: WorkOrderType[] = [
 const WorkOrderList = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string>('');
+    
+    // Initialize filter states from query params if they exist
+    const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || '');
     const [priorityFilter, setPriorityFilter] = useState<string>('');
-    const [typeFilter, setTypeFilter] = useState<string>('');
-    const [showFilters, setShowFilters] = useState(false);
+    const [typeFilter, setTypeFilter] = useState<string>(() => searchParams.get('type') || '');
+    const [showFilters, setShowFilters] = useState(() => !!(searchParams.get('status') || searchParams.get('type')));
 
     // Sorting State
     const [sortBy, setSortBy] = useState<string>('updatedAt');
@@ -68,6 +71,17 @@ const WorkOrderList = () => {
         }, 500);
         return () => clearTimeout(timer);
     }, [searchTerm]);
+
+    // Sync query parameters with component state when they change
+    useEffect(() => {
+        const typeParam = searchParams.get('type') || '';
+        const statusParam = searchParams.get('status') || '';
+        setTypeFilter(typeParam);
+        setStatusFilter(statusParam);
+        if (typeParam || statusParam) {
+            setShowFilters(true);
+        }
+    }, [searchParams]);
 
     // Load work orders when filters or page change
     useEffect(() => {
@@ -179,7 +193,7 @@ const WorkOrderList = () => {
             valA = new Date(a.updatedAt || a.createdAt).getTime();
             valB = new Date(b.updatedAt || b.createdAt).getTime();
         }
-        
+
         if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
         if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
         return 0;
@@ -375,8 +389,8 @@ const WorkOrderList = () => {
                     {pagination && pagination.totalPages > 1 && (
                         <div className="px-6 py-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors" style={{ borderColor: 'var(--border-main)', background: 'rgba(0,0,0,0.01)' }}>
                             <p className="text-xs font-bold" style={{ color: 'var(--text-dim)' }}>
-                                {t('common.add').includes('Agre') 
-                                    ? `Mostrando ${workOrders.length} de ${pagination.total} registros` 
+                                {t('common.add').includes('Agre')
+                                    ? `Mostrando ${workOrders.length} de ${pagination.total} registros`
                                     : `Showing ${workOrders.length} of ${pagination.total} records`}
                             </p>
                             <div className="flex items-center gap-2">
@@ -394,7 +408,7 @@ const WorkOrderList = () => {
                                             key={i + 1}
                                             onClick={() => handlePageChange(i + 1)}
                                             className={`w-9 h-9 rounded-lg text-xs font-black transition-all ${currentPage === i + 1 ? 'shadow-lg' : 'hover:bg-black/5'}`}
-                                            style={{ 
+                                            style={{
                                                 background: currentPage === i + 1 ? 'var(--brand-lime)' : 'transparent',
                                                 color: currentPage === i + 1 ? '#000' : 'var(--text-main)',
                                                 border: currentPage === i + 1 ? 'none' : '1px solid var(--border-main)'

@@ -157,6 +157,10 @@ export interface GpsMileageData {
     imei: string;
     mileage: number; // in meters or km depending on platform
     runTime: number; // minutes or seconds
+    totalMileage: number;
+    distance: number;
+    avgSpeed: number;
+    elapsed: number;
 }
 
 export interface GpsTrackPoint {

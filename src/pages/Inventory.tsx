@@ -5,13 +5,14 @@ import {
   Package, Plus, Search, Filter, AlertTriangle,
   ArrowUpRight, History, Trash2, Edit2, Loader2,
   ChevronDown, X, CheckCircle2, MoreHorizontal, Truck, Upload,
-  ShoppingCart
+  ShoppingCart, XCircle, TrendingUp, TrendingDown
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   getParts, createPart, updatePart, deletePart, bulkCreateParts,
   type InventoryPart, type PartCategory, type UnitType
 } from '../services/inventoryService';
+import { getScrapItems } from '../services/scrapService';
 import { createProcurementRequest } from '../services/workshopProcurementService';
 import { getSuppliers, type Supplier } from '../services/supplierService';
 import { getAccountingCodes, getTaxProfiles } from '../services/serviceBillService';
@@ -39,6 +40,8 @@ const Inventory = () => {
   const [parts, setParts] = useState<InventoryPart[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [scrappedCount, setScrappedCount] = useState(0);
+  const [kpiFilter, setKpiFilter] = useState<'ALL' | 'SAFE' | 'LOW' | 'OUT' | 'FAST' | 'NON_MOVING'>('ALL');
 
   // Modals
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -76,8 +79,12 @@ const Inventory = () => {
     setLoading(true);
     try {
       const filters: any = { branchId, category: 'Parts' };
-      const data = await getParts(filters);
-      setParts(data);
+      const [partsData, scrapData] = await Promise.all([
+        getParts(filters),
+        getScrapItems()
+      ]);
+      setParts(partsData);
+      setScrappedCount(Array.isArray(scrapData) ? scrapData.reduce((sum: number, item: any) => sum + item.quantity, 0) : 0);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to load inventory');
     } finally {
@@ -85,10 +92,19 @@ const Inventory = () => {
     }
   };
 
-  const filteredParts = parts.filter(p =>
-    p.partName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.partNumber.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredParts = parts.filter(p => {
+    const matchesSearch = p.partName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          p.partNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (kpiFilter === 'SAFE') return !p.isLowStock && p.quantityOnHand > 0;
+    if (kpiFilter === 'LOW') return p.isLowStock && p.quantityOnHand > 0;
+    if (kpiFilter === 'OUT') return p.quantityOnHand === 0;
+    if (kpiFilter === 'FAST') return p.quantityReserved > 0;
+    if (kpiFilter === 'NON_MOVING') return p.quantityReserved === 0 && p.quantityOnHand > 0;
+
+    return true;
+  });
 
   const handleRestock = async () => {
     if (!selectedPart) return;
@@ -313,47 +329,149 @@ const Inventory = () => {
         )}
       </div>
 
-      {/* Stats Quick View */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-card p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-            <Package size={20} className="text-blue-500" />
+      {/* Stats Quick View - Grouped Layout */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          {/* Card 1: Volume & Scrap */}
+          <div className="stat-card p-5 flex flex-col justify-between" style={{ borderColor: 'rgba(200, 230, 0, 0.25)' }}>
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[10px] font-black uppercase tracking-widest text-lime" style={{ color: 'var(--brand-lime)' }}>
+                  Inventory Volume
+                </span>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[rgba(200,230,0,0.1)]">
+                  <Package size={18} style={{ color: 'var(--brand-lime)' }} />
+                </div>
+              </div>
+              <div className="text-4xl font-extrabold text-white mb-1">{parts.length}</div>
+              <span className="text-xs text-gray-400">Total Unique Parts Cataloged</span>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-[var(--border-main)] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-gray-400">Decommissioned Scrap</span>
+                <div className="text-xl font-bold text-white mt-0.5">{scrappedCount} <span className="text-xs font-normal text-gray-400">items</span></div>
+              </div>
+              <button 
+                className="btn-secondary !py-1.5 !px-3 !text-xs flex items-center gap-1 hover:border-lime"
+                onClick={() => navigate('/scrap-list')}
+              >
+                View Scrap <ArrowUpRight size={14} />
+              </button>
+            </div>
           </div>
-          <div>
-            <p className="text-[10px] uppercase font-bold tracking-wider" style={{ color: 'var(--text-dim)' }}>Total Items</p>
-            <p className="text-xl font-bold">{parts.length}</p>
+
+          {/* Card 2: Stock Availability Health */}
+          <div className="stat-card p-5 flex flex-col justify-between" style={{ borderColor: 'rgba(39, 174, 96, 0.25)' }}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Stock Availability Health</span>
+              <span className="text-[10px] bg-emerald-500/10 text-[#27AE60] px-2 py-0.5 rounded font-bold uppercase tracking-wider">Level</span>
+            </div>
+
+            <div className="space-y-4">
+              {/* Safe */}
+              <div className={`p-2 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'SAFE' ? 'bg-white/5 border-[#27AE60]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'SAFE' ? 'ALL' : 'SAFE')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#27AE60]" />
+                    In Stock - Safe
+                  </span>
+                  <span className="font-bold text-white">{parts.filter(p => !p.isLowStock && p.quantityOnHand > 0).length}</span>
+                </div>
+                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#27AE60]" 
+                    style={{ width: `${parts.length ? (parts.filter(p => !p.isLowStock && p.quantityOnHand > 0).length / parts.length) * 100 : 0}%` }} 
+                  />
+                </div>
+              </div>
+
+              {/* Low */}
+              <div className={`p-2 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'LOW' ? 'bg-white/5 border-[#E67E22]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'LOW' ? 'ALL' : 'LOW')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#E67E22]" />
+                    Running Low
+                  </span>
+                  <span className="font-bold text-white">{parts.filter(p => p.isLowStock && p.quantityOnHand > 0).length}</span>
+                </div>
+                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#E67E22]" 
+                    style={{ width: `${parts.length ? (parts.filter(p => p.isLowStock && p.quantityOnHand > 0).length / parts.length) * 100 : 0}%` }} 
+                  />
+                </div>
+              </div>
+
+              {/* Out */}
+              <div className={`p-2 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'OUT' ? 'bg-white/5 border-[#EF4444]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'OUT' ? 'ALL' : 'OUT')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#EF4444]" />
+                    Stock Out
+                  </span>
+                  <span className="font-bold text-white">{parts.filter(p => p.quantityOnHand === 0).length}</span>
+                </div>
+                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#EF4444]" 
+                    style={{ width: `${parts.length ? (parts.filter(p => p.quantityOnHand === 0).length / parts.length) * 100 : 0}%` }} 
+                  />
+                </div>
+              </div>
+            </div>
           </div>
+
+          {/* Card 3: Demand Velocity */}
+          <div className="stat-card p-5 flex flex-col justify-between" style={{ borderColor: 'rgba(155, 89, 182, 0.25)' }}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Demand Velocity</span>
+              <span className="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Activity</span>
+            </div>
+
+            <div className="space-y-4 my-auto">
+              {/* Fast Moving */}
+              <div className={`p-3.5 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'FAST' ? 'bg-white/5 border-[#F39C12]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'FAST' ? 'ALL' : 'FAST')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <TrendingUp size={14} className="text-[#F39C12]" />
+                    Fast Moving (Reserved)
+                  </span>
+                  <span className="font-bold text-white">{parts.filter(p => p.quantityReserved > 0).length}</span>
+                </div>
+                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#F39C12]" 
+                    style={{ width: `${parts.length ? (parts.filter(p => p.quantityReserved > 0).length / parts.length) * 100 : 0}%` }} 
+                  />
+                </div>
+              </div>
+
+              {/* Non Moving */}
+              <div className={`p-3.5 rounded-xl border transition-all cursor-pointer ${kpiFilter === 'NON_MOVING' ? 'bg-white/5 border-[#9B59B6]' : 'border-transparent hover:bg-white/5'}`}
+                onClick={() => setKpiFilter(prev => prev === 'NON_MOVING' ? 'ALL' : 'NON_MOVING')}
+              >
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <TrendingDown size={14} className="text-[#9B59B6]" />
+                    Non-Moving Stock
+                  </span>
+                  <span className="font-bold text-white">{parts.filter(p => p.quantityReserved === 0 && p.quantityOnHand > 0).length}</span>
+                </div>
+                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#9B59B6]" 
+                    style={{ width: `${parts.length ? (parts.filter(p => p.quantityReserved === 0 && p.quantityOnHand > 0).length / parts.length) * 100 : 0}%` }} 
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
-        <div className="glass-card p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
-            <AlertTriangle size={20} className="text-orange-500" />
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-bold tracking-wider" style={{ color: 'var(--text-dim)' }}>Low Stock</p>
-            <p className="text-xl font-bold text-orange-500">{parts.filter(p => p.isLowStock).length}</p>
-          </div>
-        </div>
-        <div className="glass-card p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
-            <CheckCircle2 size={20} className="text-green-500" />
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-bold tracking-wider" style={{ color: 'var(--text-dim)' }}>In Stock</p>
-            <p className="text-xl font-bold text-green-500">{parts.filter(p => p.quantityOnHand > 0).length}</p>
-          </div>
-        </div>
-        <div className="glass-card p-4 flex items-center gap-4 border-l-2 border-[var(--brand-lime)]">
-          <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime-alpha)] flex items-center justify-center">
-            <ArrowUpRight size={20} className="text-[var(--brand-lime)]" />
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-bold tracking-wider" style={{ color: 'var(--text-dim)' }}>Active Reservations</p>
-            <p className="text-xl font-bold" style={{ color: 'var(--brand-lime)' }}>
-              {parts.reduce((acc, p) => acc + p.quantityReserved, 0)}
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* Search & Filter */}
       <div className="glass-card p-4">
