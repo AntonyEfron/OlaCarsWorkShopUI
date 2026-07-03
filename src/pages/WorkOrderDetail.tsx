@@ -898,15 +898,15 @@ const WorkOrderDetail = () => {
                     </div>
                     {showTaskForm && (
                         <div className="glass-card p-4 space-y-3">
-                            <input placeholder={t('workOrders.create.faultPlaceholder')} value={taskForm.description}
-                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                                className="input-field" />
                             <div className="grid grid-cols-2 gap-3">
                                 <select value={taskForm.category || ''} onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value as AddTaskPayload['category'] })} className="input-field">
                                     {['Mechanical', 'Electrical', 'Body', 'Tyres', 'Fluids', 'Other'].map((c) => <option key={c} value={c}>{c}</option>)}
                                 </select>
                                 <input type="number" placeholder="Est. hours" value={taskForm.estimatedHours || ''} onChange={(e) => setTaskForm({ ...taskForm, estimatedHours: Number(e.target.value) })} className="input-field" min="0" step="0.5" />
                             </div>
+                            <input placeholder={t('workOrders.create.faultPlaceholder')} value={taskForm.description}
+                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                                className="input-field" />
                             <div className="flex gap-2">
                                 <button className="btn-secondary text-xs flex-1" onClick={() => setShowTaskForm(false)}>{t('common.cancel')}</button>
                                 <button className="btn-primary text-xs flex-1" disabled={!taskForm.description || actionLoading}
