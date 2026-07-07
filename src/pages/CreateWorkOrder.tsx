@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import {
     createWorkOrder,
+    addPhotoFile,
     type WorkOrderType,
     type Priority,
 } from '../services/workOrderService';
@@ -38,6 +39,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<any>> = {
     RECALL: AlertTriangle,
     SAFETY_PREP: Shield,
     WEAR_ITEM: Layers,
+    OTHER: Wrench,
 };
 
 const CreateWorkOrder = () => {
@@ -54,6 +56,7 @@ const CreateWorkOrder = () => {
         { value: 'RECALL', label: t('workOrders.types.recall') },
         { value: 'SAFETY_PREP', label: t('workOrders.types.safetyPrep') },
         { value: 'WEAR_ITEM', label: t('workOrders.types.wearItem') },
+        { value: 'OTHER', label: t('workOrders.types.other') },
     ];
 
     const PRIORITY_OPTIONS = [
@@ -69,7 +72,86 @@ const CreateWorkOrder = () => {
     const [vehicleSearchTerm, setVehicleSearchTerm] = useState('');
     const [selectedVehicleData, setSelectedVehicleData] = useState<Vehicle | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [newPhotoLabel, setNewPhotoLabel] = useState('');
+    const [arrivalPhotos, setArrivalPhotos] = useState<{
+        odometer: File | null;
+        plateNo: File | null;
+        condition: File | null;
+    }>({
+        odometer: null,
+        plateNo: null,
+        condition: null,
+    });
+    const [activeSlot, setActiveSlot] = useState<'odometer' | 'plateNo' | 'condition' | null>(null);
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    // Camera capture effects & handlers
+    useEffect(() => {
+        if (isCameraOpen && videoRef.current && cameraStream) {
+            videoRef.current.srcObject = cameraStream;
+        }
+    }, [isCameraOpen, cameraStream]);
+
+    const startCamera = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' }
+            });
+            setCameraStream(stream);
+            setIsCameraOpen(true);
+        } catch (err: any) {
+            console.error('Camera access error:', err);
+            toast.error('Camera access denied or unavailable');
+        }
+    };
+
+    const stopCamera = () => {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            setCameraStream(null);
+        }
+        setIsCameraOpen(false);
+        setActiveSlot(null);
+    };
+
+    const capturePhoto = () => {
+        if (!videoRef.current || !activeSlot) return;
+        const video = videoRef.current;
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+                if (blob) {
+                    const file = new File([blob], `${activeSlot}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    setArrivalPhotos(prev => ({
+                        ...prev,
+                        [activeSlot]: file
+                    }));
+                    toast.success('Photo captured successfully');
+                }
+            }, 'image/jpeg', 0.85);
+        }
+        stopCamera();
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0] && activeSlot) {
+            const file = e.target.files[0];
+            setArrivalPhotos(prev => ({
+                ...prev,
+                [activeSlot]: file
+            }));
+            toast.success(`Photo added for ${activeSlot === 'odometer' ? 'Odometer' : activeSlot === 'plateNo' ? 'Plate No' : 'Condition'}`);
+        }
+        if (e.target) {
+            e.target.value = '';
+        }
+    };
 
     // GPS states
     const [gpsLoading, setGpsLoading] = useState(false);
@@ -209,14 +291,66 @@ const CreateWorkOrder = () => {
         setGpsMileage(null);
     };
 
-    const handleAddPhotoRequirement = () => {
-        if (!newPhotoLabel.trim()) return;
-        setForm(prev => ({
-            ...prev,
-            requiredPhotos: [...prev.requiredPhotos, { label: newPhotoLabel.trim(), stage: 'QC', isMandatory: true }]
-        }));
-        setNewPhotoLabel('');
-        toast.success('Photo requirement added');
+    const triggerUpload = (slot: 'odometer' | 'plateNo' | 'condition') => {
+        setActiveSlot(slot);
+        fileInputRef.current?.click();
+    };
+
+    const triggerCamera = async (slot: 'odometer' | 'plateNo' | 'condition') => {
+        setActiveSlot(slot);
+        await startCamera();
+    };
+
+    const renderPhotoSlot = (slot: 'odometer' | 'plateNo' | 'condition', title: string, description: string) => {
+        const file = arrivalPhotos[slot];
+        const previewUrl = file ? URL.createObjectURL(file) : null;
+
+        return (
+            <div className="flex flex-col p-5 rounded-2xl bg-white/5 border border-white/5 space-y-4 relative justify-between min-h-[220px]">
+                <div className="space-y-1.5">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-[var(--brand-lime)]">{title}</h3>
+                    <p className="text-[10px] text-gray-400 leading-normal">{description}</p>
+                </div>
+
+                {file && previewUrl ? (
+                    <div className="relative aspect-video rounded-xl overflow-hidden border border-[var(--border-main)] group shadow-md bg-black/10 mt-2">
+                        <img src={previewUrl} alt={title} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setArrivalPhotos(prev => ({ ...prev, [slot]: null }));
+                                    URL.revokeObjectURL(previewUrl);
+                                }}
+                                className="p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 truncate text-[9px] text-white font-mono text-center">
+                            {file.name}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex gap-2.5 mt-2">
+                        <button
+                            type="button"
+                            onClick={() => triggerCamera(slot)}
+                            className="btn-secondary flex-1 h-10 text-[11px] font-bold flex items-center justify-center gap-1.5 rounded-xl border border-[var(--border-main)] hover:bg-white/5 cursor-pointer"
+                        >
+                            <Camera size={14} /> Camera
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => triggerUpload(slot)}
+                            className="btn-primary flex-1 h-10 text-[11px] font-bold flex items-center justify-center gap-1.5 rounded-xl cursor-pointer"
+                        >
+                            <Plus size={14} /> Upload
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -244,6 +378,28 @@ const CreateWorkOrder = () => {
                 gpsSerialNumber: matchedGps?.imei || undefined,
             };
             const result = await createWorkOrder(payload);
+
+            // Upload arrival photos if any
+            const uploadPromises = [];
+            if (arrivalPhotos.odometer) {
+                uploadPromises.push(addPhotoFile(result._id, arrivalPhotos.odometer, 'CHECK_IN', 'Odometer Photo'));
+            }
+            if (arrivalPhotos.plateNo) {
+                uploadPromises.push(addPhotoFile(result._id, arrivalPhotos.plateNo, 'CHECK_IN', 'Plate No Photo'));
+            }
+            if (arrivalPhotos.condition) {
+                uploadPromises.push(addPhotoFile(result._id, arrivalPhotos.condition, 'CHECK_IN', 'Condition Photo'));
+            }
+
+            if (uploadPromises.length > 0) {
+                try {
+                    await Promise.all(uploadPromises);
+                } catch (uploadErr) {
+                    console.error('Failed to upload arrival photos', uploadErr);
+                    toast.error('Work order created, but failed to upload some photos');
+                }
+            }
+
             toast.success(t('common.success'));
             navigate(`/work-orders/${result._id}`, { replace: true });
         } catch (error: any) {
@@ -586,15 +742,15 @@ const CreateWorkOrder = () => {
                                 </div>
                             )}
 
-                            {/* Step 3: Priority & Fault Description */}
+                            {/* Step 3: Priority & Job Description */}
                             {currentStep === 3 && (
                                 <div className="space-y-4 animate-fadeInUp">
                                     <div className="flex flex-col gap-1 border-b border-[var(--border-main)]/30 pb-3">
                                         <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                                            Priority & Fault Details
+                                            Priority & Job Details
                                         </h2>
                                         <p className="text-[11px] text-gray-400">
-                                            Specify the service priority and describe the fault or work needed on the vehicle.
+                                            Specify the service priority and describe the job or work needed on the vehicle.
                                         </p>
                                     </div>
 
@@ -630,7 +786,7 @@ const CreateWorkOrder = () => {
                                             </div>
                                         </div>
 
-                                        {/* Right Column: Fault Description */}
+                                        {/* Right Column: Job Description */}
                                         <div className="lg:col-span-8 space-y-2">
                                             <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">
                                                 {t('workOrders.create.fault')} *
@@ -683,7 +839,7 @@ const CreateWorkOrder = () => {
                                                         </span>
                                                     </div>
                                                     <div className="col-span-2 border-t border-white/5 pt-2">
-                                                        <span className="block text-gray-500 uppercase tracking-wider text-[9px] mb-0.5">Fault Description</span>
+                                                        <span className="block text-gray-500 uppercase tracking-wider text-[9px] mb-0.5">Job Description</span>
                                                         <p className="text-gray-300 font-medium leading-relaxed italic">"{form.faultDescription}"</p>
                                                     </div>
                                                 </div>
@@ -708,88 +864,36 @@ const CreateWorkOrder = () => {
                                 </div>
                             )}
 
-                            {/* Step 5: Required Photos */}
+                            {/* Step 5: Vehicle Arrival Photos */}
                             {currentStep === 5 && (
-                                <div className="space-y-4 animate-fadeInUp">
+                                <div className="space-y-6 animate-fadeInUp">
                                     <div className="flex flex-col gap-1 border-b border-[var(--border-main)]/30 pb-3">
                                         <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                                            {t('workOrders.create.requiredPhotos') || 'Required Photos (QC)'}
+                                            {t('workOrders.create.requiredPhotos') || 'Vehicle arrival photos'}
                                         </h2>
                                         <p className="text-[11px] text-gray-400">
-                                            Configure the required photo proofs technicians must upload during check-in or release stages.
+                                            Upload or capture the 3 required photos of the vehicle's condition upon arrival.
                                         </p>
                                     </div>
 
-                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-2">
-                                        {/* Left Column: Inline adder */}
-                                        <div className="lg:col-span-5 space-y-4">
-                                            <div className="p-5 rounded-2xl bg-white/5 border border-white/5 space-y-4">
-                                                <h3 className="text-[10px] font-black uppercase tracking-widest text-lime">Add Photo Requirement</h3>
-                                                <div className="space-y-3">
-                                                    <div className="space-y-1.5">
-                                                        <label className="text-[9px] uppercase tracking-wider text-gray-400 font-bold">Requirement Label</label>
-                                                        <input 
-                                                            type="text" 
-                                                            placeholder="e.g. Engine Bay, Rear Tyre..." 
-                                                            value={newPhotoLabel}
-                                                            onChange={(e) => setNewPhotoLabel(e.target.value)}
-                                                            className="input-field text-xs"
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    handleAddPhotoRequirement();
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleAddPhotoRequirement}
-                                                        disabled={!newPhotoLabel.trim()}
-                                                        className="w-full btn-primary h-10 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                    >
-                                                        <Plus size={14} /> Add Requirement
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+                                        {/* Slot 1: Odometer */}
+                                        {renderPhotoSlot('odometer', 'Odometer Reading', 'Capture current dashboard mileage reading.')}
 
-                                        {/* Right Column: Requirements list */}
-                                        <div className="lg:col-span-7 space-y-2">
-                                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">
-                                                Requirements List ({form.requiredPhotos.length})
-                                            </label>
-                                            <div className="grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-1">
-                                                {form.requiredPhotos.map((rp, idx) => (
-                                                    <div key={idx} className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] group shadow-sm transition-all hover:bg-[var(--bg-card)]">
-                                                        <div className="flex items-center gap-3 min-w-0">
-                                                            <div className="p-2 rounded-lg bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] flex-shrink-0">
-                                                                <Camera size={14} />
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <p className="text-xs font-bold text-white truncate leading-tight">{rp.label}</p>
-                                                                <p className="text-[9px] uppercase tracking-wider opacity-60 font-mono mt-0.5">
-                                                                    {rp.stage.replace('_', ' ')} • {rp.isMandatory ? 'Mandatory' : 'Optional'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setForm(prev => ({
-                                                                    ...prev,
-                                                                    requiredPhotos: prev.requiredPhotos.filter((_, i) => i !== idx)
-                                                                }));
-                                                            }}
-                                                            className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg flex-shrink-0"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
+                                        {/* Slot 2: Plate No */}
+                                        {renderPhotoSlot('plateNo', 'Plate Number', 'Capture license plate clearly for verification.')}
+
+                                        {/* Slot 3: Condition */}
+                                        {renderPhotoSlot('condition', 'Vehicle Condition', 'Capture overall exterior view or visible damage.')}
                                     </div>
+                                    
+                                    <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={handleFileChange}
+                                    />
                                 </div>
                             )}
                         </div>
@@ -854,6 +958,44 @@ const CreateWorkOrder = () => {
                     </form>
                 </div>
             </div>
+
+            {/* Webcam Photo Capture Modal */}
+            {isCameraOpen && (
+                <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4 animate-fadeIn">
+                    <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-2xl p-6 w-full max-w-md space-y-4 flex flex-col items-center shadow-2xl">
+                        <div className="w-full flex items-center justify-between">
+                            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Take Vehicle Photo</h3>
+                            <button type="button" onClick={stopCamera} className="p-1 text-gray-400 hover:text-white rounded-lg cursor-pointer">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-white/10">
+                            <video
+                                ref={videoRef}
+                                autoPlay
+                                playsInline
+                                className="w-full h-full object-cover"
+                            />
+                        </div>
+                        <div className="flex gap-3 w-full">
+                            <button
+                                type="button"
+                                onClick={stopCamera}
+                                className="btn-secondary flex-1 py-3 text-xs font-bold cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={capturePhoto}
+                                className="btn-primary flex-1 py-3 text-xs font-bold cursor-pointer"
+                            >
+                                Capture
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

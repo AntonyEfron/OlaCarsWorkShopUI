@@ -55,8 +55,8 @@
             "selectType": "Seleccione el tipo de orden de trabajo",
             "vehicle": "Vehículo",
             "priority": "Prioridad",
-            "fault": "Descripción del Fallo",
-            "faultPlaceholder": "Describa el fallo o el trabajo requerido...",
+            "fault": "Descripción del Trabajo",
+            "faultPlaceholder": "Describa el trabajo requerido...",
             "labourHrs": "Mano de Obra Est. (Hrs)",
             "partsCost": "Costo Est. de Repuestos",
             "notes": "Notas Adicionales",
@@ -64,6 +64,7 @@
             "submit": "Crear Orden de Trabajo",
             "creating": "Creando...",
             "validation": "Por favor, complete todos los campos requeridos",
+            "requiredPhotos": "Fotos de llegada del vehículo",
             "noContext": "Falta el contexto por sucursal. Intente cerrar sesión e iniciarla nuevamente."
         },
         "detail": {
@@ -89,7 +90,8 @@
             "returnInspection": "Inspección de Retorno",
             "recall": "Retirada/Recall",
             "safetyPrep": "Preparación de Seguridad",
-            "wearItem": "Reemplazo de Desgaste"
+            "wearItem": "Reemplazo de Desgaste",
+            "other": "Otros"
         },
         "priorities": {
             "low": "Baja",

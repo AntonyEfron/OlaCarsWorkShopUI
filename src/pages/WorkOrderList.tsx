@@ -31,7 +31,7 @@ const PRIORITY_OPTIONS: Priority[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
 const TYPE_OPTIONS: WorkOrderType[] = [
     'PREVENTIVE', 'CORRECTIVE', 'PRE_ENTRY', 'ACCIDENT',
-    'RETURN_INSPECTION', 'RECALL', 'SAFETY_PREP', 'WEAR_ITEM',
+    'RETURN_INSPECTION', 'RECALL', 'SAFETY_PREP', 'WEAR_ITEM', 'OTHER',
 ];
 
 const WorkOrderList = () => {

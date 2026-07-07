@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
     Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, Upload, AlertTriangle,
-    Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink
+    Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink, X, Plus
 } from 'lucide-react';
 import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
@@ -58,6 +58,7 @@ const WorkOrderDetail = () => {
 
     /* ── Task form state ── */
     const [showTaskForm, setShowTaskForm] = useState(false);
+    const [customTaskMode, setCustomTaskMode] = useState(false);
     const [taskForm, setTaskForm] = useState<AddTaskPayload>({ description: '', category: 'Mechanical', estimatedHours: 1 });
 
     /* ── Part form state ── */
@@ -101,6 +102,83 @@ const WorkOrderDetail = () => {
     const [gpsTrack, setGpsTrack] = useState<GpsTrackPoint[]>([]);
     const [obdData, setObdData] = useState<GpsObdData | null>(null);
     const [resolvedImei, setResolvedImei] = useState<string>('');
+
+    /* ── Camera/Webcam states & refs ── */
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+    const [cameraTargetSlot, setCameraTargetSlot] = useState<{ stage: string; label: string } | null>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    // Camera capture effect
+    useEffect(() => {
+        if (isCameraOpen && videoRef.current && cameraStream) {
+            videoRef.current.srcObject = cameraStream;
+        }
+    }, [isCameraOpen, cameraStream]);
+
+    const startCamera = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' }
+            });
+            setCameraStream(stream);
+            setIsCameraOpen(true);
+        } catch (err: any) {
+            console.error('Camera access error:', err);
+            toast.error('Camera access denied or unavailable');
+        }
+    };
+
+    const stopCamera = () => {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            setCameraStream(null);
+        }
+        setIsCameraOpen(false);
+        setCameraTargetSlot(null);
+    };
+
+    const capturePhoto = () => {
+        if (!videoRef.current || !cameraTargetSlot) return;
+        const video = videoRef.current;
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+                if (blob) {
+                    const file = new File([blob], `verification_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    doAction(() => addPhotoFile(id!, file, cameraTargetSlot.stage as any, cameraTargetSlot.label || undefined));
+                }
+            }, 'image/jpeg', 0.85);
+        }
+        stopCamera();
+    };
+
+    const triggerUpload = (target: { stage: string; label: string }) => {
+        setCameraTargetSlot(target);
+        setTimeout(() => {
+            fileInputRef.current?.click();
+        }, 50);
+    };
+
+    const triggerCamera = async (target: { stage: string; label: string }) => {
+        setCameraTargetSlot(target);
+        await startCamera();
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file && cameraTargetSlot) {
+            doAction(() => addPhotoFile(id!, file, cameraTargetSlot.stage as any, cameraTargetSlot.label || undefined));
+        }
+        if (e.target) {
+            e.target.value = '';
+        }
+    };
 
     const load = useCallback(async () => {
         if (!id) return;
@@ -897,21 +975,123 @@ const WorkOrderDetail = () => {
                         </button>
                     </div>
                     {showTaskForm && (
-                        <div className="glass-card p-4 space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
-                                <select value={taskForm.category || ''} onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value as AddTaskPayload['category'] })} className="input-field">
-                                    {['Mechanical', 'Electrical', 'Body', 'Tyres', 'Fluids', 'Other'].map((c) => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                                <input type="number" placeholder="Est. hours" value={taskForm.estimatedHours || ''} onChange={(e) => setTaskForm({ ...taskForm, estimatedHours: Number(e.target.value) })} className="input-field" min="0" step="0.5" />
+                        <div className="glass-card p-5 space-y-4 border border-[var(--border-main)]/50 rounded-2xl animate-fadeIn">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">Quick Add Specific Task</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                {[
+                                    { name: 'OIL FILTER CHANGE', category: 'Mechanical' as const, hours: 0.5 },
+                                    { name: 'AIR FILTER CHANGE', category: 'Mechanical' as const, hours: 0.5 },
+                                    { name: 'AC FILTER CHANGE', category: 'Electrical' as const, hours: 0.5 },
+                                    { name: 'COOLANT TOP-UP', category: 'Fluids' as const, hours: 0.5 },
+                                    { name: 'ENGINE OIL CHANGE', category: 'Fluids' as const, hours: 0.5 },
+                                ].map((preTask) => (
+                                    <button
+                                        key={preTask.name}
+                                        type="button"
+                                        disabled={actionLoading}
+                                        onClick={() => doAction(async () => {
+                                            await addTask(id!, {
+                                                description: preTask.name,
+                                                category: preTask.category,
+                                                estimatedHours: preTask.hours
+                                            });
+                                            setShowTaskForm(false);
+                                        })}
+                                        className="flex flex-col p-4 rounded-xl bg-white/5 border border-white/5 hover:border-[var(--brand-lime)]/50 hover:bg-white/10 text-left transition-all active:scale-[0.98] cursor-pointer group"
+                                    >
+                                        <span className="text-xs font-bold text-white group-hover:text-[var(--brand-lime)] transition-colors">{preTask.name}</span>
+                                        <span className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{preTask.category} • {preTask.hours}h</span>
+                                    </button>
+                                ))}
+
+                                {/* Add New Task (Custom) Option */}
+                                <button
+                                    type="button"
+                                    onClick={() => setCustomTaskMode(true)}
+                                    className="flex flex-col items-center justify-center p-4 rounded-xl bg-white/5 border border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] text-center transition-all cursor-pointer min-h-[72px]"
+                                >
+                                    <span className="text-xs font-black uppercase text-[var(--brand-lime)] tracking-widest flex items-center gap-1.5">
+                                        <PlusCircle size={14} /> ADD NEW TASK
+                                    </span>
+                                </button>
                             </div>
-                            <input placeholder={t('workOrders.create.faultPlaceholder')} value={taskForm.description}
-                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                                className="input-field" />
-                            <div className="flex gap-2">
-                                <button className="btn-secondary text-xs flex-1" onClick={() => setShowTaskForm(false)}>{t('common.cancel')}</button>
-                                <button className="btn-primary text-xs flex-1" disabled={!taskForm.description || actionLoading}
-                                    onClick={() => doAction(async () => { await addTask(id!, taskForm); setShowTaskForm(false); setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 }); })}>
-                                    {actionLoading ? <Loader2 size={14} className="animate-spin" /> : t('common.add')}
+
+                            {customTaskMode && (
+                                <div className="border-t border-[var(--border-main)]/30 pt-4 space-y-3 mt-2 animate-fadeIn">
+                                    <h5 className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Custom Task Details</h5>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Task Category</label>
+                                            <select
+                                                value={taskForm.category || ''}
+                                                onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value as AddTaskPayload['category'] })}
+                                                className="input-field w-full"
+                                            >
+                                                {['Mechanical', 'Electrical', 'Body', 'Tyres', 'Fluids', 'Other'].map((c) => (
+                                                    <option key={c} value={c}>{c}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Est. Hours</label>
+                                            <input
+                                                type="number"
+                                                placeholder="Est. hours"
+                                                value={taskForm.estimatedHours || ''}
+                                                onChange={(e) => setTaskForm({ ...taskForm, estimatedHours: Number(e.target.value) })}
+                                                className="input-field w-full"
+                                                min="0"
+                                                step="0.5"
+                                            />
+                                        </div>
+                                        <div className="space-y-1 sm:col-span-3">
+                                            <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Task Description</label>
+                                            <input
+                                                placeholder="Enter custom task description..."
+                                                value={taskForm.description}
+                                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                                                className="input-field w-full"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 pt-2">
+                                        <button
+                                            type="button"
+                                            className="btn-secondary text-xs flex-1"
+                                            onClick={() => {
+                                                setCustomTaskMode(false);
+                                                setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-primary text-xs flex-1"
+                                            disabled={!taskForm.description || actionLoading}
+                                            onClick={() => doAction(async () => {
+                                                await addTask(id!, taskForm);
+                                                setShowTaskForm(false);
+                                                setCustomTaskMode(false);
+                                                setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
+                                            })}
+                                        >
+                                            {actionLoading ? <Loader2 size={14} className="animate-spin" /> : 'Create Custom Task'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-end pt-2 border-t border-[var(--border-main)]/20">
+                                <button
+                                    type="button"
+                                    className="text-[10px] uppercase font-bold text-gray-400 hover:text-white"
+                                    onClick={() => {
+                                        setShowTaskForm(false);
+                                        setCustomTaskMode(false);
+                                    }}
+                                >
+                                    Close Menu
                                 </button>
                             </div>
                         </div>
@@ -1237,33 +1417,51 @@ const WorkOrderDetail = () => {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <label className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] transition-all duration-300 cursor-pointer group shadow-sm bg-[var(--bg-card)]/50 relative">
-                                                <input
-                                                    type="file"
-                                                    className="hidden"
-                                                    accept="image/*"
-                                                    onChange={(e) => {
-                                                        const file = e.target.files?.[0];
-                                                        if (file) doAction(() => addPhotoFile(id!, file, rp.stage as any || 'IN_PROGRESS', rp.label));
-                                                    }}
-                                                    disabled={actionLoading}
-                                                />
-                                                <div className="w-14 h-14 rounded-full bg-[var(--bg-input)] flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-[var(--brand-lime)] transition-all duration-500 group-active:scale-95">
-                                                    <Camera size={28} className="text-[var(--text-dim)] group-hover:text-[var(--brand-black)]" />
+                                            <div className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)]/50 transition-all duration-300 group shadow-sm bg-[var(--bg-card)]/50 relative p-4 justify-between">
+                                                <div className="flex flex-col items-center text-center mt-2">
+                                                    <div className="w-10 h-10 rounded-full bg-[var(--bg-input)] flex items-center justify-center mb-2">
+                                                        <Camera size={20} className="text-[var(--text-dim)]" />
+                                                    </div>
+                                                    <span className="text-xs font-bold text-[var(--text-main)] truncate max-w-[150px]">{rp.label}</span>
+                                                    {rp.isMandatory && <span className="text-[8px] font-bold text-orange-400 uppercase tracking-widest mt-0.5">Required</span>}
                                                 </div>
-                                                <span className="text-sm font-bold text-[var(--text-main)] group-hover:text-black transition-colors">{rp.label}</span>
-                                                {rp.isMandatory && <span className="text-[9px] font-bold text-orange-400 uppercase tracking-widest mt-1">Required</span>}
+                                                <div className="flex gap-2 w-full mt-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                        className="btn-secondary flex-1 h-8 text-[10px] font-bold flex items-center justify-center gap-1 rounded-lg border border-[var(--border-main)] hover:bg-white/5 cursor-pointer"
+                                                        disabled={actionLoading}
+                                                    >
+                                                        <Camera size={12} /> Camera
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                        className="btn-primary flex-1 h-8 text-[10px] font-bold flex items-center justify-center gap-1 rounded-lg cursor-pointer"
+                                                        disabled={actionLoading}
+                                                    >
+                                                        <Upload size={12} /> Upload
+                                                    </button>
+                                                </div>
                                                 {actionLoading && (
                                                     <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-20">
-                                                        <Loader2 size={32} className="animate-spin text-[var(--brand-lime)]" />
+                                                        <Loader2 size={24} className="animate-spin text-[var(--brand-lime)]" />
                                                     </div>
                                                 )}
-                                            </label>
+                                            </div>
                                         )}
                                     </div>
                                 );
                             })}
                         </div>
+
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleFileChange}
+                        />
                     </div>
 
                     {/* QC Checklist Section */}
@@ -1313,15 +1511,22 @@ const WorkOrderDetail = () => {
                     <div className="pt-6 border-t border-[var(--border-main)]">
                         <div className="flex items-center justify-between mb-4">
                             <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Reference Photos</h4>
-                            <label className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer">
-                                <input type="file" className="hidden" accept="image/*"
-                                    onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) doAction(() => addPhotoFile(id!, file, 'IN_PROGRESS'));
-                                    }}
-                                />
-                                <PlusCircle size={12} /> Add More
-                            </label>
+                            <div className="flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => triggerCamera({ stage: 'IN_PROGRESS', label: '' })}
+                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
+                                >
+                                    <Camera size={12} /> Take Photo
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => triggerUpload({ stage: 'IN_PROGRESS', label: '' })}
+                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
+                                >
+                                    <PlusCircle size={12} /> Add More
+                                </button>
+                            </div>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                             {wo.photos.filter(p => !(wo.requiredPhotos || []).some(rp => rp.label === p.caption)).map((p) => (
@@ -1611,6 +1816,44 @@ const WorkOrderDetail = () => {
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Webcam Photo Capture Modal */}
+            {isCameraOpen && (
+                <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4 animate-fadeIn">
+                    <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-2xl p-6 w-full max-w-md space-y-4 flex flex-col items-center shadow-2xl">
+                        <div className="w-full flex items-center justify-between">
+                            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Take Vehicle Photo</h3>
+                            <button type="button" onClick={stopCamera} className="p-1 text-gray-400 hover:text-white rounded-lg cursor-pointer">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-white/10">
+                            <video
+                                ref={videoRef}
+                                autoPlay
+                                playsInline
+                                className="w-full h-full object-cover"
+                            />
+                        </div>
+                        <div className="flex gap-3 w-full">
+                            <button
+                                type="button"
+                                onClick={stopCamera}
+                                className="btn-secondary flex-1 py-3 text-xs font-bold cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={capturePhoto}
+                                className="btn-primary flex-1 py-3 text-xs font-bold cursor-pointer"
+                            >
+                                Capture
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -72,8 +72,8 @@
             "selectType": "Select Work Order Type",
             "vehicle": "Vehicle",
             "priority": "Priority",
-            "fault": "Fault Description",
-            "faultPlaceholder": "Describe the fault or work required...",
+            "fault": "Job description",
+            "faultPlaceholder": "Describe the job or work required...",
             "labourHrs": "Est. Labour Hours",
             "partsCost": "Est. Parts Cost",
             "notes": "Additional Notes",
@@ -81,6 +81,7 @@
             "submit": "Create Work Order",
             "creating": "Creating...",
             "validation": "Please fill in all required fields",
+            "requiredPhotos": "Vehicle arrival photos",
             "noContext": "Branch context missing. Please try logging out and in again."
         },
         "detail": {
@@ -106,7 +107,8 @@
             "returnInspection": "Return Inspection",
             "recall": "Recall",
             "safetyPrep": "Safety Preparation",
-            "wearItem": "Wear Item Replacement"
+            "wearItem": "Wear Item Replacement",
+            "other": "Others"
         },
         "priorities": {
             "low": "Low",

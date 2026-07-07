@@ -12,7 +12,7 @@ export type WorkOrderStatus =
 
 export type WorkOrderType =
     | 'PREVENTIVE' | 'CORRECTIVE' | 'PRE_ENTRY' | 'ACCIDENT'
-    | 'RETURN_INSPECTION' | 'RECALL' | 'SAFETY_PREP' | 'WEAR_ITEM';
+    | 'RETURN_INSPECTION' | 'RECALL' | 'SAFETY_PREP' | 'WEAR_ITEM' | 'OTHER';
 
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED';
