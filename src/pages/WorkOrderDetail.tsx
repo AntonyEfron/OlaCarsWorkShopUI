@@ -239,10 +239,28 @@ const WorkOrderDetail = () => {
         if (fetchBranchId) {
             setPartsLoading(true);
             getParts({ branchId: fetchBranchId }).then(parts => {
-                setInventoryParts(parts.filter(p => p.isActive));
+                const vehicle = wo?.vehicleId as any;
+                const make = (vehicle?.basicDetails?.make || '').toLowerCase().trim();
+                const model = (vehicle?.basicDetails?.model || '').toLowerCase().trim();
+
+                const filtered = parts.filter(p => {
+                    if (!p.isActive) return false;
+                    if (make || model) {
+                        const nameLower = (p.partName || '').toLowerCase();
+                        const descLower = (p.description || '').toLowerCase();
+                        
+                        const matchesMake = make ? (nameLower.includes(make) || descLower.includes(make)) : true;
+                        const matchesModel = model ? (nameLower.includes(model) || descLower.includes(model)) : true;
+                        
+                        return matchesMake && matchesModel;
+                    }
+                    return true;
+                });
+
+                setInventoryParts(filtered);
             }).catch(() => { }).finally(() => setPartsLoading(false));
         }
-    }, [wo?.branchId, branchId]);
+    }, [wo?.branchId, wo?.vehicleId, branchId]);
 
     const matchGpsDevice = (devices: any[], plate?: string, vin?: string) => {
         if (!plate && !vin) return null;
@@ -995,7 +1013,6 @@ const WorkOrderDetail = () => {
                                                 category: preTask.category,
                                                 estimatedHours: preTask.hours
                                             });
-                                            setShowTaskForm(false);
                                         })}
                                         className="flex flex-col p-4 rounded-xl bg-white/5 border border-white/5 hover:border-[var(--brand-lime)]/50 hover:bg-white/10 text-left transition-all active:scale-[0.98] cursor-pointer group"
                                     >
@@ -1071,8 +1088,6 @@ const WorkOrderDetail = () => {
                                             disabled={!taskForm.description || actionLoading}
                                             onClick={() => doAction(async () => {
                                                 await addTask(id!, taskForm);
-                                                setShowTaskForm(false);
-                                                setCustomTaskMode(false);
                                                 setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
                                             })}
                                         >
