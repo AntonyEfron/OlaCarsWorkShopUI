@@ -95,6 +95,38 @@ const WorkOrderDetail = () => {
     const [taxName, setTaxName] = useState('');
     const [taxProfiles, setTaxProfiles] = useState<any[]>([]);
 
+    /* ── Labour Work Start/End Time state (Hours and Minutes inputs) ── */
+    const [startHour, setStartHour] = useState<string>('00');
+    const [startMin, setStartMin] = useState<string>('00');
+    const [endHour, setEndHour] = useState<string>('00');
+    const [endMin, setEndMin] = useState<string>('00');
+    const [labourDebugInfo, setLabourDebugInfo] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (wo) {
+            if (wo.workStartTime) {
+                const date = new Date(wo.workStartTime);
+                if (!isNaN(date.getTime())) {
+                    setStartHour(String(date.getHours()).padStart(2, '0'));
+                    setStartMin(String(date.getMinutes()).padStart(2, '0'));
+                }
+            } else {
+                setStartHour('00');
+                setStartMin('00');
+            }
+            if (wo.workEndTime) {
+                const date = new Date(wo.workEndTime);
+                if (!isNaN(date.getTime())) {
+                    setEndHour(String(date.getHours()).padStart(2, '0'));
+                    setEndMin(String(date.getMinutes()).padStart(2, '0'));
+                }
+            } else {
+                setEndHour('00');
+                setEndMin('00');
+            }
+        }
+    }, [wo]);
+
     /* ── GPS Data state ── */
     const [gpsData, setGpsData] = useState<GpsLocationData | null>(null);
     const [gpsLoading, setGpsLoading] = useState(false);
@@ -375,7 +407,8 @@ const WorkOrderDetail = () => {
 
     const handleBackendError = (err: any) => {
         const msg = (err.response?.data?.message || err.message || '').toLowerCase();
-        if (msg.includes('part')) setActiveTab('parts');
+        if (msg.includes('labour') || msg.includes('work start') || msg.includes('times must be updated') || msg.includes('hours must be greater') || msg.includes('actual labour')) setActiveTab('labour');
+        else if (msg.includes('part')) setActiveTab('parts');
         else if (msg.includes('task')) setActiveTab('tasks');
         else if (msg.includes('photo') || msg.includes('qc')) setActiveTab('qc');
         else if (msg.includes('odometer') || msg.includes('entry') || msg.includes('additional work')) setActiveTab('overview');
@@ -483,11 +516,34 @@ const WorkOrderDetail = () => {
                                     }
 
                                     if (ns === 'READY_FOR_RELEASE') {
-                                        const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
-                                            rp.isMandatory && !wo.photos.some(p => p.caption === rp.label)
+                                        const incompleteTasks = (wo.tasks || []).filter(t => t.status !== 'COMPLETED' && t.status !== 'SKIPPED');
+                                        if (incompleteTasks.length > 0) {
+                                            toast.error(`Please complete or skip all tasks: ${incompleteTasks.length} task(s) remaining.`);
+                                            setActiveTab('qc');
+                                            return;
+                                        }
+
+                                        const uninstalledParts = (wo.parts || []).filter(p => p.status !== 'INSTALLED' && p.status !== 'RETURNED');
+                                        if (uninstalledParts.length > 0) {
+                                            toast.error(`Please install or return all parts: ${uninstalledParts.length} part(s) remaining.`);
+                                            setActiveTab('qc');
+                                            return;
+                                        }
+
+                                        const missingTaskPhotos = (wo.tasks || []).filter(t => 
+                                            t.status === 'COMPLETED' && !wo.photos.some(p => p.caption === `TASK_${t._id}`)
                                         );
-                                        if (missingMandatory.length > 0) {
-                                            toast.error(`Please upload mandatory photos: ${missingMandatory.map(m => m.label).join(', ')}`);
+                                        if (missingTaskPhotos.length > 0) {
+                                            toast.error(`Please upload photos for completed tasks: ${missingTaskPhotos.map(t => t.description).join(', ')}`);
+                                            setActiveTab('qc');
+                                            return;
+                                        }
+
+                                        const missingPartPhotos = (wo.parts || []).filter(p => 
+                                            p.status === 'INSTALLED' && !wo.photos.some(ph => ph.caption === `PART_${p._id}`)
+                                        );
+                                        if (missingPartPhotos.length > 0) {
+                                            toast.error(`Please upload photos for installed parts: ${missingPartPhotos.map(p => p.partName).join(', ')}`);
                                             setActiveTab('qc');
                                             return;
                                         }
@@ -529,14 +585,6 @@ const WorkOrderDetail = () => {
                                     disabled={actionLoading || !bill || bill.paymentStatus !== 'PAID'}
                                     className={`btn-primary text-xs !py-2 !px-4 ${(!bill || bill.paymentStatus !== 'PAID') ? 'opacity-50 !cursor-not-allowed grayscale' : ''}`}
                                     onClick={() => {
-                                        const missingMandatory = (wo.requiredPhotos || []).filter(rp =>
-                                            rp.isMandatory && !wo.photos.some(p => p.caption === rp.label)
-                                        );
-                                        if (missingMandatory.length > 0) {
-                                            toast.error(`Mandatory photos missing: ${missingMandatory.map(m => m.label).join(', ')}`);
-                                            setActiveTab('qc');
-                                            return;
-                                        }
                                         doAction(() => releaseVehicle(id!, { odometerAtRelease: releaseOdometer ? Number(releaseOdometer) : undefined, releaseNotes: releaseNotes || undefined }));
                                     }}
                                 >
@@ -1132,21 +1180,13 @@ const WorkOrderDetail = () => {
                                         </p>
                                     </div>
                                     <div className="flex gap-1 flex-shrink-0">
-                                        {task.status === 'PENDING' && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Start" disabled={actionLoading}
-                                                onClick={() => doAction(() => updateTask(id!, task._id, { status: 'IN_PROGRESS' as TaskStatus }))}>
-                                                <Play size={14} />
-                                            </button>
-                                        )}
-                                        {task.status === 'IN_PROGRESS' && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Complete" disabled={actionLoading}
-                                                onClick={() => doAction(() => updateTask(id!, task._id, { status: 'COMPLETED' as TaskStatus }))}>
-                                                <CheckCircle2 size={14} />
-                                            </button>
-                                        )}
-                                        {task.status === 'PENDING' && (
+                                        {!['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status) && (
                                             <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
-                                                onClick={() => doAction(() => removeTask(id!, task._id))}>
+                                                onClick={() => {
+                                                    if (window.confirm('Are you sure you want to remove this task?')) {
+                                                        doAction(() => removeTask(id!, task._id));
+                                                    }
+                                                }}>
                                                 <Trash2 size={14} />
                                             </button>
                                         )}
@@ -1271,27 +1311,16 @@ const WorkOrderDetail = () => {
                                         </p>
                                     </div>
                                     <div className="flex gap-1 flex-shrink-0">
-                                        {part.status === 'REQUESTED' && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Approve & Install" disabled={actionLoading}
-                                                onClick={() => doAction(() => updatePart(id!, part._id, { status: 'INSTALLED' as PartStatus }))}>
-                                                <CheckCircle2 size={14} />
-                                            </button>
-                                        )}
-                                        {part.status === 'RESERVED' && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Mark Installed" disabled={actionLoading}
-                                                onClick={() => doAction(() => updatePart(id!, part._id, { status: 'INSTALLED' as PartStatus }))}>
-                                                <CheckCircle2 size={14} />
-                                            </button>
-                                        )}
-                                        {part.status === 'RECEIVED' && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px]" title="Mark Installed" disabled={actionLoading}
-                                                onClick={() => doAction(() => updatePart(id!, part._id, { status: 'INSTALLED' as PartStatus }))}>
-                                                <CheckCircle2 size={14} />
-                                            </button>
-                                        )}
-                                        {(part.status === 'REQUESTED' || part.status === 'RECEIVED' || part.status === 'RESERVED') && (
+                                        {!['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status) && (
                                             <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
-                                                onClick={() => doAction(() => removePart(id!, part._id))}>
+                                                onClick={() => {
+                                                    const confirmMsg = part.status === 'INSTALLED'
+                                                        ? 'This part is currently INSTALLED. Removing it will return the stock to inventory. Are you sure you want to delete it?'
+                                                        : 'Are you sure you want to remove this part?';
+                                                    if (window.confirm(confirmMsg)) {
+                                                        doAction(() => removePart(id!, part._id));
+                                                    }
+                                                }}>
                                                 <Trash2 size={14} />
                                             </button>
                                         )}
@@ -1309,61 +1338,159 @@ const WorkOrderDetail = () => {
                     <div className="glass-card p-6">
                         <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.labour')}</h3>
                         <div className="flex flex-col gap-4">
-                            <div className="grid grid-cols-2 gap-4 mb-2">
-                                <div className="glass-card p-4 text-center">
-                                    <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Estimated</p>
-                                    <p className="text-xl font-bold font-mono" style={{ color: 'var(--text-main)' }}>{wo.estimatedLabourHours || 0}h</p>
-                                </div>
-                                <div className="glass-card p-4 text-center border-l-2 border-[var(--brand-lime)]">
-                                    <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Actual</p>
-                                    <p className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>{wo.actualLabourHours || 0}h</p>
-                                </div>
+                            {/* Time Taken Box */}
+                            <div className="glass-card p-4 text-center border-l-2 border-[var(--brand-lime)] mb-2">
+                                <p className="text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Time Taken</p>
+                                <p className="text-xl font-bold font-mono" style={{ color: 'var(--brand-lime)' }}>
+                                    {(() => {
+                                        const sH = parseInt(startHour, 10);
+                                        const sM = parseInt(startMin, 10);
+                                        const eH = parseInt(endHour, 10);
+                                        const eM = parseInt(endMin, 10);
+
+                                        if (isNaN(sH) || sH < 0 || sH > 23 || isNaN(sM) || sM < 0 || sM > 59) return '--';
+                                        if (isNaN(eH) || eH < 0 || eH > 23 || isNaN(eM) || eM < 0 || eM > 59) return '--';
+
+                                        let startTotalMins = sH * 60 + sM;
+                                        let endTotalMins = eH * 60 + eM;
+
+                                        if (endTotalMins < startTotalMins) {
+                                            endTotalMins += 24 * 60; // overnight
+                                        }
+
+                                        const diffMins = endTotalMins - startTotalMins;
+                                        const h = Math.floor(diffMins / 60);
+                                        const m = diffMins % 60;
+
+                                        return `${h}h ${m}m`;
+                                    })()}
+                                </p>
                             </div>
-                            <div className="grid grid-cols-1 gap-3">
-                                {wo.status === 'IN_PROGRESS' && (
-                                    <button className="flex items-center justify-center gap-3 p-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer active:scale-95 shadow-lg w-full"
-                                        style={{ background: '#E67E2222', color: '#E67E22', border: '2px solid #E67E2244' }}
-                                        disabled={actionLoading}
-                                        onClick={() => doAction(async () => {
-                                            const reason = window.prompt('Please enter the pause reason:');
-                                            if (reason === null) return;
-                                            if (!reason) {
-                                                toast.error('Pause reason is required.');
+                            <div className="mt-4 p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)]/20 space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* Start Time Section */}
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-xs font-semibold" style={{ color: 'var(--text-main)' }}>
+                                            Work Start Time
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="number"
+                                                className="input-field font-mono text-center w-20"
+                                                placeholder="HH"
+                                                min="0"
+                                                max="23"
+                                                value={startHour}
+                                                onChange={(e) => setStartHour(e.target.value)}
+                                                disabled={actionLoading || ['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status)}
+                                            />
+                                            <span style={{ color: 'var(--text-dim)' }}>:</span>
+                                            <input
+                                                type="number"
+                                                className="input-field font-mono text-center w-20"
+                                                placeholder="MM"
+                                                min="0"
+                                                max="59"
+                                                value={startMin}
+                                                onChange={(e) => setStartMin(e.target.value)}
+                                                disabled={actionLoading || ['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status)}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* End Time Section */}
+                                    <div className="flex flex-col gap-1.5">
+                                        <label className="text-xs font-semibold" style={{ color: 'var(--text-main)' }}>
+                                            Work End Time
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="number"
+                                                className="input-field font-mono text-center w-20"
+                                                placeholder="HH"
+                                                min="0"
+                                                max="23"
+                                                value={endHour}
+                                                onChange={(e) => setEndHour(e.target.value)}
+                                                disabled={actionLoading || ['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status)}
+                                            />
+                                            <span style={{ color: 'var(--text-dim)' }}>:</span>
+                                            <input
+                                                type="number"
+                                                className="input-field font-mono text-center w-20"
+                                                placeholder="MM"
+                                                min="0"
+                                                max="59"
+                                                value={endMin}
+                                                onChange={(e) => setEndMin(e.target.value)}
+                                                disabled={actionLoading || ['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status)}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end">
+                                    <button
+                                        className="btn-primary text-xs flex items-center gap-2"
+                                        disabled={actionLoading || ['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status) || !startHour || !startMin || !endHour || !endMin}
+                                        onClick={async () => {
+                                            const sH = parseInt(startHour, 10);
+                                            const sM = parseInt(startMin, 10);
+                                            const eH = parseInt(endHour, 10);
+                                            const eM = parseInt(endMin, 10);
+
+                                            if (isNaN(sH) || sH < 0 || sH > 23 || isNaN(sM) || sM < 0 || sM > 59) {
+                                                toast.error('Please enter a valid start hour (0-23) and minute (0-59).');
                                                 return;
                                             }
-                                            return progressWorkOrderStatus(id!, 'PAUSED', reason, { pauseReason: reason });
-                                        })}>
-                                        <Pause size={24} />
-                                        <div className="text-left">
-                                            <p className="leading-tight">Pause Work</p>
-                                            <p className="text-[10px] opacity-60 font-medium uppercase tracking-wider">Requires reason prompt</p>
-                                        </div>
+                                            if (isNaN(eH) || eH < 0 || eH > 23 || isNaN(eM) || eM < 0 || eM > 59) {
+                                                toast.error('Please enter a valid end hour (0-23) and minute (0-59).');
+                                                return;
+                                            }
+
+                                            // Determine base date (use work order date if available, or today)
+                                            const baseDate = wo.createdAt ? new Date(wo.createdAt) : new Date();
+
+                                            const start = new Date(baseDate);
+                                            start.setHours(sH, sM, 0, 0);
+
+                                            const end = new Date(baseDate);
+                                            end.setHours(eH, eM, 0, 0);
+
+                                            if (end < start) {
+                                                // Overnight shift
+                                                end.setDate(end.getDate() + 1);
+                                            }
+
+                                            setLabourDebugInfo('Initiating request...');
+                                            await doAction(async () => {
+                                                try {
+                                                    const payload = {
+                                                        workStartTime: start.toISOString(),
+                                                        workEndTime: end.toISOString()
+                                                    };
+                                                    setLabourDebugInfo(`Payload: ${JSON.stringify(payload)}. Sending POST request...`);
+                                                    const updated = await logLabour(wo._id, payload);
+                                                    setLabourDebugInfo(`Success! Server returned updated WO status: ${updated?.status}, actualLabourHours: ${updated?.actualLabourHours}, workStartTime: ${updated?.workStartTime}`);
+                                                    setWo(updated);
+                                                    toast.success('Work times updated successfully.');
+                                                } catch (err: any) {
+                                                    const msg = err.response?.data?.message || err.message || JSON.stringify(err);
+                                                    setLabourDebugInfo(`Error returned from server: ${msg}`);
+                                                    throw err;
+                                                }
+                                            });
+                                        }}
+                                    >
+                                        {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                                        Update Work Times
                                     </button>
-                                )}
-                                {wo.status === 'PAUSED' && (
-                                    <button className="flex items-center justify-center gap-3 p-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer active:scale-95 shadow-lg w-full"
-                                        style={{ background: '#3498DB22', color: '#3498DB', border: '2px solid #3498DB44' }}
-                                        disabled={actionLoading}
-                                        onClick={() => doAction(async () => {
-                                            return progressWorkOrderStatus(id!, 'IN_PROGRESS');
-                                        })}>
-                                        <Play size={24} />
-                                        <div className="text-left">
-                                            <p className="leading-tight">Resume Work</p>
-                                            <p className="text-[10px] opacity-60 font-medium uppercase tracking-wider">Continues automated tracking</p>
-                                        </div>
-                                    </button>
-                                )}
-                                {(wo.status !== 'IN_PROGRESS' && wo.status !== 'PAUSED') && (
-                                    <div className="glass-card p-6 text-center border-dashed border-2 opacity-60">
-                                        <Clock size={32} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
-                                        <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>Labour Tracking</p>
-                                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                                            {wo.status === 'QUALITY_CHECK' || wo.status === 'READY_FOR_RELEASE' || wo.status === 'VEHICLE_RELEASED'
-                                                ? 'Work completed. Labour logs finalized.'
-                                                : 'Automatic timer starts when status is set to IN PROGRESS.'}
-                                        </p>
-                                    </div>
+                                </div>
+
+                                {['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status) && (
+                                    <p className="text-[10px] text-[var(--text-muted)] italic">
+                                        Work times cannot be modified because the work order is finalized.
+                                    </p>
                                 )}
                             </div>
                         </div>
@@ -1372,202 +1499,538 @@ const WorkOrderDetail = () => {
             )}
 
             {/* ══════════════════ QC & PHOTOS TAB ══════════════════ */}
-            {activeTab === 'qc' && (
-                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {/* Photos Section */}
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Repair Verification Photos</h3>
-                                <p className="text-xs text-[var(--text-dim)]">Upload required photos to proceed with release.</p>
+            {activeTab === 'qc' && (() => {
+                const isReleasedOrLater = ['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status);
+                const totalTasksCount = wo.tasks.length;
+                const completedTasksCount = wo.tasks.filter(t => t.status === 'COMPLETED').length;
+                
+                const totalPartsCount = wo.parts.length;
+                const installedPartsCount = wo.parts.filter(p => p.status === 'INSTALLED').length;
+
+                // Photos needed for completed tasks and installed parts
+                const completedTaskIds = wo.tasks.filter(t => t.status === 'COMPLETED').map(t => `TASK_${t._id}`);
+                const installedPartIds = wo.parts.filter(p => p.status === 'INSTALLED').map(p => `PART_${p._id}`);
+                const requiredPhotoCaptions = [...completedTaskIds, ...installedPartIds];
+                
+                const requiredPhotosCount = requiredPhotoCaptions.length;
+                const uploadedPhotosCount = wo.photos.filter(p => requiredPhotoCaptions.includes(p.caption)).length;
+
+                const totalSteps = totalTasksCount + totalPartsCount + requiredPhotosCount;
+                const completedSteps = completedTasksCount + installedPartsCount + uploadedPhotosCount;
+                const overallPercent = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 100;
+                const hasAllPhotos = uploadedPhotosCount === requiredPhotosCount;
+
+                return (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* QC Progress Overview Widget */}
+                        <div className="glass-card p-4 bg-gradient-to-r from-[var(--bg-card)] via-[var(--bg-card)]/90 to-[var(--brand-lime-alpha)]/5 border border-[var(--border-main)]/50 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md relative overflow-hidden">
+                            {/* Decorative background glows */}
+                            <div className="absolute -right-20 -top-20 w-32 h-32 rounded-full bg-[var(--brand-lime)]/5 blur-2xl pointer-events-none" />
+
+                            <div className="flex items-center gap-3 shrink-0 relative z-10">
+                                <div className="w-8 h-8 rounded-lg bg-[var(--brand-lime-alpha)]/20 flex items-center justify-center text-[var(--brand-lime)] shrink-0">
+                                    <Shield size={16} className="animate-pulse" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h3 className="text-sm font-bold text-[var(--text-main)]">Quality Control</h3>
+                                        <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5 inline-block">
+                                            <div 
+                                                className="h-full bg-gradient-to-r from-[var(--brand-lime)] to-emerald-400 transition-all duration-500 ease-out"
+                                                style={{ width: `${overallPercent}%` }}
+                                            />
+                                        </div>
+                                        <span className="text-xs font-bold text-[var(--brand-lime)] font-mono">{Math.round(overallPercent)}%</span>
+                                    </div>
+                                    <p className="text-[10px] text-[var(--text-dim)] font-medium">Verify tasks, parts, and upload photo evidence.</p>
+                                </div>
                             </div>
-                            <div className={`p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
-                                ? 'bg-[var(--brand-lime-alpha)] border-[var(--brand-lime)]'
-                                : 'bg-[var(--bg-card)]'
-                                }`}>
-                                <div className="flex items-center gap-1.5">
-                                    <CheckCircle2 size={16} className={
-                                        (wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
-                                            ? 'text-[var(--brand-lime)]'
-                                            : 'text-[var(--text-dim)]'
-                                    } />
-                                    <span className={`text-xs font-mono font-bold ${(wo.requiredPhotos || []).every(rp => !rp.isMandatory || wo.photos.some(p => p.caption === rp.label))
-                                        ? 'text-[var(--brand-lime)]'
-                                        : 'text-[var(--text-main)]'
-                                        }`}>
-                                        {wo.photos.filter(p => (wo.requiredPhotos || []).some(rp => rp.label === p.caption)).length} / {(wo.requiredPhotos || []).length}
+
+                            {/* Stats Row */}
+                            <div className="flex flex-wrap items-center gap-2 md:border-l border-[var(--border-main)]/50 md:pl-4 relative z-10">
+                                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded-lg border border-[var(--border-main)]/30">
+                                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] font-bold">Tasks</span>
+                                    <span className="text-xs font-extrabold text-[var(--text-main)] font-mono">
+                                        {completedTasksCount}/{totalTasksCount}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded-lg border border-[var(--border-main)]/30">
+                                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] font-bold">Parts</span>
+                                    <span className="text-xs font-extrabold text-[var(--text-main)] font-mono">
+                                        {installedPartsCount}/{totalPartsCount}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded-lg border border-[var(--border-main)]/30">
+                                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] font-bold">Photos</span>
+                                    <span className={`text-xs font-extrabold font-mono ${hasAllPhotos ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
+                                        {uploadedPhotosCount}/{requiredPhotosCount}
                                     </span>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            {(wo.requiredPhotos || []).map((rp) => {
-                                const photo = wo.photos.find(p => p.caption === rp.label);
-                                return (
-                                    <div key={rp.label} className="relative group">
-                                        {photo ? (
-                                            <div className="glass-card aspect-square rounded-2xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all duration-300">
-                                                <img src={photo.url} alt={rp.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                <div className="absolute bottom-3 left-3 flex flex-col opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
-                                                    <span className="text-[10px] font-bold text-white uppercase tracking-widest">{photo.stage || 'Repair'}</span>
-                                                    <span className="text-[8px] text-white/70 font-mono italic">{new Date(photo.uploadedAt || '').toLocaleDateString()}</span>
-                                                </div>
-                                                <div className="absolute top-3 right-3 flex gap-1">
-                                                    <div className="badge badge-lime text-[9px] bg-black/50 backdrop-blur-md border-[var(--brand-lime)] text-[var(--brand-lime)] font-mono">{rp.label}</div>
-                                                    <button
-                                                        className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
-                                                        title="Remove Photo"
-                                                        disabled={actionLoading}
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            if (window.confirm("Are you sure you want to remove this photo?")) {
-                                                                doAction(() => removePhoto(id!, photo._id));
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col items-center justify-center aspect-square rounded-2xl border-2 border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)]/50 transition-all duration-300 group shadow-sm bg-[var(--bg-card)]/50 relative p-4 justify-between">
-                                                <div className="flex flex-col items-center text-center mt-2">
-                                                    <div className="w-10 h-10 rounded-full bg-[var(--bg-input)] flex items-center justify-center mb-2">
-                                                        <Camera size={20} className="text-[var(--text-dim)]" />
-                                                    </div>
-                                                    <span className="text-xs font-bold text-[var(--text-main)] truncate max-w-[150px]">{rp.label}</span>
-                                                    {rp.isMandatory && <span className="text-[8px] font-bold text-orange-400 uppercase tracking-widest mt-0.5">Required</span>}
-                                                </div>
-                                                <div className="flex gap-2 w-full mt-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
-                                                        className="btn-secondary flex-1 h-8 text-[10px] font-bold flex items-center justify-center gap-1 rounded-lg border border-[var(--border-main)] hover:bg-white/5 cursor-pointer"
-                                                        disabled={actionLoading}
-                                                    >
-                                                        <Camera size={12} /> Camera
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
-                                                        className="btn-primary flex-1 h-8 text-[10px] font-bold flex items-center justify-center gap-1 rounded-lg cursor-pointer"
-                                                        disabled={actionLoading}
-                                                    >
-                                                        <Upload size={12} /> Upload
-                                                    </button>
-                                                </div>
-                                                {actionLoading && (
-                                                    <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-20">
-                                                        <Loader2 size={24} className="animate-spin text-[var(--brand-lime)]" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            className="hidden"
-                            accept="image/*"
-                            onChange={handleFileChange}
-                        />
-                    </div>
-
-                    {/* QC Checklist Section */}
-                    <div className="glass-card p-6 rounded-2xl border-[var(--border-main)] hover:border-[var(--brand-lime)]/30 transition-all duration-300">
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime-alpha)] flex items-center justify-center text-[var(--brand-lime)]">
-                                    <Shield size={20} />
-                                </div>
-                                <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.qc')} Checklist ({wo.qcChecklist.length})</h3>
+                        {/* ══════════════════ TASK VERIFICATION CHECKLIST ══════════════════ */}
+                        <div className="space-y-6">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Task Verification Checklist</h3>
+                                <p className="text-xs text-[var(--text-dim)]">Mark tasks as Completed and upload required photo documentation.</p>
                             </div>
-                            {wo.qcChecklist.length === 0 && (
-                                <button className="btn-primary text-xs !py-2 !px-4" disabled={actionLoading}
-                                    onClick={() => doAction(() => generateQC(id!))}>
-                                    <PlusCircle size={14} /> Generate Standard Checklist
-                                </button>
+
+                            {wo.tasks.length === 0 ? (
+                                <div className="glass-card p-6 text-center text-xs text-[var(--text-muted)]">
+                                    No tasks assigned to this work order.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {wo.tasks.map((task) => {
+                                        const photo = wo.photos.find(p => p.caption === `TASK_${task._id}`);
+                                        const isCompleted = task.status === 'COMPLETED';
+
+                                        return (
+                                            <div 
+                                                key={task._id} 
+                                                className={`glass-card p-4 flex items-center justify-between gap-4 border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg ${
+                                                    isCompleted 
+                                                        ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/10 via-[var(--brand-lime-alpha)]/2 to-transparent' 
+                                                        : 'border-[var(--border-main)]/50'
+                                                }`}
+                                            >
+                                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                    <button
+                                                        type="button"
+                                                        disabled={actionLoading}
+                                                        onClick={() => doAction(() => updateTask(id!, task._id, { 
+                                                            status: isCompleted ? 'PENDING' : 'COMPLETED' 
+                                                        }))}
+                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${
+                                                            isCompleted 
+                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20' 
+                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
+                                                        }`}
+                                                        title={isCompleted ? "Mark Pending" : "Mark Completed"}
+                                                    >
+                                                        <CheckCircle2 size={12} className="stroke-[3]" />
+                                                    </button>
+                                                    <div className="min-w-0 select-none">
+                                                        <span 
+                                                            onClick={() => doAction(() => updateTask(id!, task._id, { 
+                                                                status: isCompleted ? 'PENDING' : 'COMPLETED' 
+                                                            }))}
+                                                            className={`text-xs font-semibold text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors break-words ${
+                                                                isCompleted ? 'line-through text-[var(--text-dim)] font-medium' : ''
+                                                            }`}
+                                                        >
+                                                            {task.description}
+                                                        </span>
+                                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                            <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded font-mono">
+                                                                {task.category || 'General'}
+                                                            </span>
+                                                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                                                                isCompleted ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'
+                                                            }`}>
+                                                                {task.status}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex-shrink-0">
+                                                    {isCompleted ? (
+                                                        photo ? (
+                                                            <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[var(--border-main)] group/photo shadow-sm hover:border-[var(--brand-lime)]/50 transition-all duration-300">
+                                                                <img src={photo.url} alt="Task verification" className="w-full h-full object-cover transition-transform duration-300 group-hover/photo:scale-110" />
+                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                                                    {isReleasedOrLater ? (
+                                                                        <>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
+                                                                                className="w-6 h-6 rounded bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
+                                                                                title="Change Photo (Camera)"
+                                                                                disabled={actionLoading}
+                                                                            >
+                                                                                <Camera size={10} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
+                                                                                className="w-6 h-6 rounded bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
+                                                                                title="Change Photo (Upload)"
+                                                                                disabled={actionLoading}
+                                                                            >
+                                                                                <Upload size={10} />
+                                                                            </button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <button
+                                                                            className="w-6 h-6 rounded bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100"
+                                                                            title="Delete Photo"
+                                                                            disabled={actionLoading}
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault();
+                                                                                if (window.confirm("Permanently delete this verification photo?")) {
+                                                                                    doAction(() => removePhoto(id!, photo._id));
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            <Trash2 size={10} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex flex-col items-center gap-1.5 p-1 rounded-xl border border-dashed border-orange-500/40 bg-orange-500/5 px-3 py-2 shadow-inner">
+                                                                <div className="flex gap-1.5">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
+                                                                        className="btn-secondary !p-2 rounded-xl text-[10px] flex items-center justify-center hover:bg-white/10 hover:border-orange-500/50 hover:text-orange-400 transition-colors cursor-pointer"
+                                                                        title="Take Photo"
+                                                                        disabled={actionLoading}
+                                                                    >
+                                                                        <Camera size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
+                                                                        className="btn-primary !p-2 rounded-xl text-[10px] flex items-center justify-center bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/20 cursor-pointer"
+                                                                        title="Upload Photo"
+                                                                        disabled={actionLoading}
+                                                                    >
+                                                                        <Upload size={14} />
+                                                                    </button>
+                                                                </div>
+                                                                <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-0.5 animate-pulse">
+                                                                    <AlertTriangle size={8} /> Photo Req.
+                                                                </span>
+                                                            </div>
+                                                        )
+                                                    ) : (
+                                                        <span className="text-[10px] text-[var(--text-dim)] italic">Complete task to verify</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             )}
                         </div>
-                        <div className="space-y-2">
-                            {wo.qcChecklist.map((qc) => (
-                                <div key={qc._id} className="flex items-center gap-4 py-3 px-4 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-[var(--border-main)] group">
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{qc.checkItem}</p>
-                                    </div>
-                                    <div className="flex gap-1.5">
-                                        {(['PASS', 'FAIL', 'NA'] as const).map((r) => (
-                                            <button key={r}
-                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all transform active:scale-95 ${qc.result === r
-                                                    ? r === 'PASS' ? 'bg-[#27AE60] text-white shadow-lg shadow-green-500/20'
-                                                        : r === 'FAIL' ? 'bg-[#E74C3C] text-white shadow-lg shadow-red-500/20'
-                                                            : 'bg-gray-500 text-white shadow-lg shadow-gray-500/20'
-                                                    : 'bg-[var(--bg-input)] text-[var(--text-dim)] border border-[var(--border-main)] opacity-50 hover:opacity-100'
-                                                    }`}
-                                                disabled={actionLoading}
-                                                onClick={() => doAction(() => submitQC(id!, [{ checkItem: qc.checkItem, result: r }]))}
+
+                        {/* ══════════════════ PARTS INSTALLATION CHECKLIST ══════════════════ */}
+                        <div className="space-y-6 pt-6 border-t border-[var(--border-main)]/30">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Parts Installation Checklist</h3>
+                                <p className="text-xs text-[var(--text-dim)]">Mark parts as Installed and upload required photo documentation.</p>
+                            </div>
+
+                            {wo.parts.length === 0 ? (
+                                <div className="glass-card p-6 text-center text-xs text-[var(--text-muted)]">
+                                    No parts listed for this work order.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {wo.parts.map((part) => {
+                                        const photo = wo.photos.find(p => p.caption === `PART_${part._id}`);
+                                        const isInstalled = part.status === 'INSTALLED';
+
+                                        return (
+                                            <div 
+                                                key={part._id} 
+                                                className={`glass-card p-4 flex items-center justify-between gap-4 border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg ${
+                                                    isInstalled 
+                                                        ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/10 via-[var(--brand-lime-alpha)]/2 to-transparent' 
+                                                        : 'border-[var(--border-main)]/50'
+                                                }`}
                                             >
-                                                {r}
-                                            </button>
-                                        ))}
+                                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                    <button
+                                                        type="button"
+                                                        disabled={actionLoading}
+                                                        onClick={() => doAction(() => updatePart(id!, part._id, { 
+                                                            status: isInstalled ? 'REQUESTED' : 'INSTALLED' 
+                                                        }))}
+                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${
+                                                            isInstalled 
+                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20' 
+                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
+                                                        }`}
+                                                        title={isInstalled ? "Mark Uninstalled" : "Mark Installed"}
+                                                    >
+                                                        <CheckCircle2 size={12} className="stroke-[3]" />
+                                                    </button>
+                                                    <div className="min-w-0 select-none">
+                                                        <span 
+                                                            onClick={() => doAction(() => updatePart(id!, part._id, { 
+                                                                status: isInstalled ? 'REQUESTED' : 'INSTALLED' 
+                                                            }))}
+                                                            className={`text-xs font-semibold text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors break-words ${
+                                                                isInstalled ? 'line-through text-[var(--text-dim)] font-medium' : ''
+                                                            }`}
+                                                        >
+                                                            {part.partName}
+                                                        </span>
+                                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                            <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded">
+                                                                Qty: {part.quantity}
+                                                            </span>
+                                                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                                                                isInstalled ? 'text-[var(--brand-lime)]' : 'text-orange-400'
+                                                            }`}>
+                                                                {part.status === 'REQUESTED' ? 'AWAITING APPROVAL' : part.status}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex-shrink-0">
+                                                    {isInstalled ? (
+                                                        photo ? (
+                                                            <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[var(--border-main)] group/photo shadow-sm hover:border-[var(--brand-lime)]/50 transition-all duration-300">
+                                                                <img src={photo.url} alt="Part verification" className="w-full h-full object-cover transition-transform duration-300 group-hover/photo:scale-110" />
+                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                                                    {isReleasedOrLater ? (
+                                                                        <>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `PART_${part._id}` })}
+                                                                                className="w-6 h-6 rounded bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
+                                                                                title="Change Photo (Camera)"
+                                                                                disabled={actionLoading}
+                                                                            >
+                                                                                <Camera size={10} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `PART_${part._id}` })}
+                                                                                className="w-6 h-6 rounded bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
+                                                                                title="Change Photo (Upload)"
+                                                                                disabled={actionLoading}
+                                                                            >
+                                                                                <Upload size={10} />
+                                                                            </button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <button
+                                                                            className="w-6 h-6 rounded bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100"
+                                                                            title="Delete Photo"
+                                                                            disabled={actionLoading}
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault();
+                                                                                if (window.confirm("Permanently delete this verification photo?")) {
+                                                                                    doAction(() => removePhoto(id!, photo._id));
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            <Trash2 size={10} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex flex-col items-center gap-1.5 p-1 rounded-xl border border-dashed border-orange-500/40 bg-orange-500/5 px-3 py-2 shadow-inner">
+                                                                <div className="flex gap-1.5">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `PART_${part._id}` })}
+                                                                        className="btn-secondary !p-2 rounded-xl text-[10px] flex items-center justify-center hover:bg-white/10 hover:border-orange-500/50 hover:text-orange-400 transition-colors cursor-pointer"
+                                                                        title="Take Photo"
+                                                                        disabled={actionLoading}
+                                                                    >
+                                                                        <Camera size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `PART_${part._id}` })}
+                                                                        className="btn-primary !p-2 rounded-xl text-[10px] flex items-center justify-center bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/20 cursor-pointer"
+                                                                        title="Upload Photo"
+                                                                        disabled={actionLoading}
+                                                                    >
+                                                                        <Upload size={14} />
+                                                                    </button>
+                                                                </div>
+                                                                <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-0.5 animate-pulse">
+                                                                    <AlertTriangle size={8} /> Photo Req.
+                                                                </span>
+                                                            </div>
+                                                        )
+                                                    ) : (
+                                                        <span className="text-[10px] text-[var(--text-dim)] italic">Install part to verify</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Photos Section */}
+                        <div className="space-y-6 pt-6 border-t border-[var(--border-main)]/30">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                    <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Repair Verification Photos</h3>
+                                    <p className="text-xs text-[var(--text-dim)]">Upload verification photos for the vehicle (optional).</p>
+                                </div>
+                                <div className="p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 bg-[var(--bg-card)]">
+                                    <div className="flex items-center gap-1.5">
+                                        <Camera size={14} className="text-[var(--text-dim)]" />
+                                        <span className="text-xs font-mono font-bold text-[var(--text-main)]">
+                                            {wo.photos.filter(p => (wo.requiredPhotos || []).some(rp => rp.label === p.caption)).length} / {(wo.requiredPhotos || []).length}
+                                        </span>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
+                            </div>
 
-                    {/* Additional Photos Section */}
-                    <div className="pt-6 border-t border-[var(--border-main)]">
-                        <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Reference Photos</h4>
-                            <div className="flex gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => triggerCamera({ stage: 'IN_PROGRESS', label: '' })}
-                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
-                                >
-                                    <Camera size={12} /> Take Photo
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => triggerUpload({ stage: 'IN_PROGRESS', label: '' })}
-                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
-                                >
-                                    <PlusCircle size={12} /> Add More
-                                </button>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                                {(wo.requiredPhotos || []).map((rp) => {
+                                    const photo = wo.photos.find(p => p.caption === rp.label);
+                                    return (
+                                        <div key={rp.label} className="relative group">
+                                            {photo ? (
+                                                <div className="glass-card aspect-[1.3/1] rounded-xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all duration-300 relative">
+                                                    <img src={photo.url} alt={rp.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    <div className="absolute bottom-2 left-2 flex flex-col opacity-0 group-hover:opacity-100 transition-all transform translate-y-1 group-hover:translate-y-0">
+                                                        <span className="text-[8px] font-bold text-white uppercase tracking-widest">{photo.stage || 'Repair'}</span>
+                                                        <span className="text-[7px] text-white/70 font-mono italic">{new Date(photo.uploadedAt || '').toLocaleDateString()}</span>
+                                                    </div>
+                                                    <div className="absolute top-2 right-2 flex gap-1">
+                                                        <div className="badge badge-lime text-[8px] px-1.5 py-0 bg-black/55 backdrop-blur-sm border-[var(--brand-lime)]/50 text-[var(--brand-lime)] font-mono">{rp.label}</div>
+                                                        {isReleasedOrLater ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                                    className="w-5 h-5 rounded-md bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white cursor-pointer"
+                                                                    title="Change Photo (Camera)"
+                                                                    disabled={actionLoading}
+                                                                >
+                                                                    <Camera size={10} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                                    className="w-5 h-5 rounded-md bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white cursor-pointer"
+                                                                    title="Change Photo (Upload)"
+                                                                    disabled={actionLoading}
+                                                                >
+                                                                    <Upload size={10} />
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <button
+                                                                className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
+                                                                title="Remove Photo"
+                                                                disabled={actionLoading}
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    if (window.confirm("Are you sure you want to remove this photo?")) {
+                                                                        doAction(() => removePhoto(id!, photo._id));
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-between aspect-[1.3/1] rounded-xl border border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)]/50 transition-all duration-300 group shadow-sm bg-[var(--bg-card)]/50 relative p-2">
+                                                    <div className="flex flex-col items-center text-center mt-1">
+                                                        <Camera size={14} className="text-[var(--text-dim)] mb-1" />
+                                                        <span className="text-[10px] font-bold text-[var(--text-main)] truncate max-w-[120px]">{rp.label}</span>
+                                                        <span className="text-[8px] font-bold text-[var(--text-dim)] uppercase tracking-widest mt-0.5">Optional</span>
+                                                    </div>
+                                                    <div className="flex gap-1.5 w-full mt-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                            className="btn-secondary flex-1 h-6 text-[9px] font-bold flex items-center justify-center gap-0.5 rounded-md border border-[var(--border-main)] hover:bg-white/5 cursor-pointer"
+                                                            disabled={actionLoading}
+                                                        >
+                                                            <Camera size={10} /> Camera
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                            className="btn-primary flex-1 h-6 text-[9px] font-bold flex items-center justify-center gap-0.5 rounded-md cursor-pointer"
+                                                            disabled={actionLoading}
+                                                        >
+                                                            <Upload size={10} /> Upload
+                                                        </button>
+                                                    </div>
+                                                    {actionLoading && (
+                                                        <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-xl flex items-center justify-center z-20">
+                                                            <Loader2 size={16} className="animate-spin text-[var(--brand-lime)]" />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                className="hidden"
+                                accept="image/*"
+                                onChange={handleFileChange}
+                            />
+                        </div>
+
+
+                        {/* Additional Photos Section */}
+                        <div className="pt-6 border-t border-[var(--border-main)]">
+                            <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Reference Photos</h4>
+                                <div className="flex gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => triggerCamera({ stage: 'IN_PROGRESS', label: '' })}
+                                        className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
+                                    >
+                                        <Camera size={12} /> Take Photo
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => triggerUpload({ stage: 'IN_PROGRESS', label: '' })}
+                                        className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
+                                    >
+                                        <PlusCircle size={12} /> Add More
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                                {wo.photos.filter(p => !(wo.requiredPhotos || []).some(rp => rp.label === p.caption)).map((p) => (
+                                    <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
+                                        <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {!isReleasedOrLater && (
+                                                <button
+                                                    className="w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
+                                                    title="Delete Photo"
+                                                    disabled={actionLoading}
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        if (window.confirm("Permanently delete this photo?")) {
+                                                            doAction(() => removePhoto(id!, p._id));
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                            {wo.photos.filter(p => !(wo.requiredPhotos || []).some(rp => rp.label === p.caption)).map((p) => (
-                                <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
-                                    <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
-                                            className="w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
-                                            title="Delete Photo"
-                                            disabled={actionLoading}
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                if (window.confirm("Permanently delete this photo?")) {
-                                                    doAction(() => removePhoto(id!, p._id));
-                                                }
-                                            }}
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {activeTab === 'billing' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

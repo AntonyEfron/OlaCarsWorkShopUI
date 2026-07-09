@@ -101,6 +101,8 @@ export interface WorkOrder {
     odometerAtRelease?: number;
     estimatedLabourHours: number;
     actualLabourHours: number;
+    workStartTime?: string;
+    workEndTime?: string;
     estimatedPartsCost: number;
     actualPartsCost: number;
     estimatedTotalCost: number;
@@ -270,10 +272,8 @@ export const removePart = async (workOrderId: string, partId: string): Promise<W
 // ── Labour ───────────────────────────────────────────────────────────
 
 export interface LogLabourPayload {
-    action: LabourAction;
-    technicianId?: string;
-    taskReference?: string;
-    notes?: string;
+    workStartTime: string;
+    workEndTime: string;
 }
 
 export const logLabour = async (workOrderId: string, payload: LogLabourPayload): Promise<WorkOrder> => {

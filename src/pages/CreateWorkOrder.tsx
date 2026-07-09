@@ -81,7 +81,19 @@ const CreateWorkOrder = () => {
         plateNo: null,
         condition: null,
     });
-    const [activeSlot, setActiveSlot] = useState<'odometer' | 'plateNo' | 'condition' | null>(null);
+    const [additionalPhotos, setAdditionalPhotos] = useState<{ file: File; preview: string }[]>([]);
+    const [activeSlot, setActiveSlot] = useState<'odometer' | 'plateNo' | 'condition' | 'additional' | null>(null);
+
+    const additionalPhotosRef = useRef<{ file: File; preview: string }[]>([]);
+    useEffect(() => {
+        additionalPhotosRef.current = additionalPhotos;
+    }, [additionalPhotos]);
+
+    useEffect(() => {
+        return () => {
+            additionalPhotosRef.current.forEach(item => URL.revokeObjectURL(item.preview));
+        };
+    }, []);
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -128,11 +140,17 @@ const CreateWorkOrder = () => {
             canvas.toBlob((blob) => {
                 if (blob) {
                     const file = new File([blob], `${activeSlot}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    setArrivalPhotos(prev => ({
-                        ...prev,
-                        [activeSlot]: file
-                    }));
-                    toast.success('Photo captured successfully');
+                    if (activeSlot === 'additional') {
+                        const preview = URL.createObjectURL(file);
+                        setAdditionalPhotos(prev => [...prev, { file, preview }]);
+                        toast.success('Additional photo captured successfully');
+                    } else {
+                        setArrivalPhotos(prev => ({
+                            ...prev,
+                            [activeSlot]: file
+                        }));
+                        toast.success('Photo captured successfully');
+                    }
                 }
             }, 'image/jpeg', 0.85);
         }
@@ -142,11 +160,17 @@ const CreateWorkOrder = () => {
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0] && activeSlot) {
             const file = e.target.files[0];
-            setArrivalPhotos(prev => ({
-                ...prev,
-                [activeSlot]: file
-            }));
-            toast.success(`Photo added for ${activeSlot === 'odometer' ? 'Odometer' : activeSlot === 'plateNo' ? 'Plate No' : 'Condition'}`);
+            if (activeSlot === 'additional') {
+                const preview = URL.createObjectURL(file);
+                setAdditionalPhotos(prev => [...prev, { file, preview }]);
+                toast.success('Additional photo added successfully');
+            } else {
+                setArrivalPhotos(prev => ({
+                    ...prev,
+                    [activeSlot]: file
+                }));
+                toast.success(`Photo added for ${activeSlot === 'odometer' ? 'Odometer' : activeSlot === 'plateNo' ? 'Plate No' : 'Condition'}`);
+            }
         }
         if (e.target) {
             e.target.value = '';
@@ -291,12 +315,12 @@ const CreateWorkOrder = () => {
         setGpsMileage(null);
     };
 
-    const triggerUpload = (slot: 'odometer' | 'plateNo' | 'condition') => {
+    const triggerUpload = (slot: 'odometer' | 'plateNo' | 'condition' | 'additional') => {
         setActiveSlot(slot);
         fileInputRef.current?.click();
     };
 
-    const triggerCamera = async (slot: 'odometer' | 'plateNo' | 'condition') => {
+    const triggerCamera = async (slot: 'odometer' | 'plateNo' | 'condition' | 'additional') => {
         setActiveSlot(slot);
         await startCamera();
     };
@@ -390,6 +414,9 @@ const CreateWorkOrder = () => {
             if (arrivalPhotos.condition) {
                 uploadPromises.push(addPhotoFile(result._id, arrivalPhotos.condition, 'CHECK_IN', 'Condition Photo'));
             }
+            additionalPhotos.forEach((item, idx) => {
+                uploadPromises.push(addPhotoFile(result._id, item.file, 'CHECK_IN', `Arrival Photo ${idx + 1}`));
+            });
 
             if (uploadPromises.length > 0) {
                 try {
@@ -885,6 +912,65 @@ const CreateWorkOrder = () => {
 
                                         {/* Slot 3: Condition */}
                                         {renderPhotoSlot('condition', 'Vehicle Condition', 'Capture overall exterior view or visible damage.')}
+                                    </div>
+
+                                    {/* Additional Photos Section */}
+                                    <div className="border-t border-[var(--border-main)]/30 pt-6 mt-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div>
+                                                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--brand-lime)]">
+                                                    Additional Photos
+                                                </h3>
+                                                <p className="text-[10px] text-gray-400 leading-normal">
+                                                    Upload or capture any additional photos of the vehicle (e.g., specific dents, interior, accessories).
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => triggerCamera('additional')}
+                                                    className="btn-secondary h-8 px-3 text-[10px] font-bold flex items-center gap-1.5 rounded-xl border border-[var(--border-main)] hover:bg-white/5 cursor-pointer"
+                                                >
+                                                    <Camera size={12} /> Camera
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => triggerUpload('additional')}
+                                                    className="btn-primary h-8 px-3 text-[10px] font-bold flex items-center gap-1.5 rounded-xl cursor-pointer"
+                                                >
+                                                    <Plus size={12} /> Upload
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {additionalPhotos.length > 0 ? (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                                {additionalPhotos.map((item, index) => (
+                                                    <div key={index} className="relative aspect-video rounded-xl overflow-hidden border border-[var(--border-main)] group shadow-md bg-black/10">
+                                                        <img src={item.preview} alt={`Additional ${index + 1}`} className="w-full h-full object-cover" />
+                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    URL.revokeObjectURL(item.preview);
+                                                                    setAdditionalPhotos(prev => prev.filter((_, i) => i !== index));
+                                                                }}
+                                                                className="p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </div>
+                                                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 truncate text-[9px] text-white font-mono text-center">
+                                                            Photo {index + 1}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center py-6 bg-white/5 rounded-2xl border border-dashed border-white/5">
+                                                <p className="text-[10px] text-gray-500">No additional photos added yet.</p>
+                                            </div>
+                                        )}
                                     </div>
                                     
                                     <input
