@@ -1513,7 +1513,7 @@ const WorkOrderDetail = () => {
                 const requiredPhotoCaptions = [...completedTaskIds, ...installedPartIds];
                 
                 const requiredPhotosCount = requiredPhotoCaptions.length;
-                const uploadedPhotosCount = wo.photos.filter(p => requiredPhotoCaptions.includes(p.caption)).length;
+                const uploadedPhotosCount = wo.photos.filter(p => p.caption && requiredPhotoCaptions.includes(p.caption)).length;
 
                 const totalSteps = totalTasksCount + totalPartsCount + requiredPhotosCount;
                 const completedSteps = completedTasksCount + installedPartsCount + uploadedPhotosCount;
