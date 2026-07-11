@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
-    Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, Upload, AlertTriangle,
+    Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, ArrowRight, Upload, AlertTriangle,
     Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink, X, Plus
 } from 'lucide-react';
 import {
-    getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask,
+    getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask, toggleTaskDoable,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
     getHourlyLabourRate, getTaxProfiles,
@@ -23,19 +23,30 @@ import {
 } from '../services/vehicleService';
 import toast from 'react-hot-toast';
 
-type Tab = 'overview' | 'tasks' | 'parts' | 'labour' | 'qc' | 'billing';
+type Tab = 'tasks' | 'labour' | 'qc' | 'billing';
 
 const ALLOWED_TRANSITIONS: Partial<Record<WorkOrderStatus, WorkOrderStatus[]>> = {
-    DRAFT: ['START', 'CANCELLED'],
-    START: ['VEHICLE_CHECKED_IN', 'CANCELLED'],
-    VEHICLE_CHECKED_IN: ['IN_PROGRESS'],
-    PARTS_REQUESTED: ['PARTS_RECEIVED'],
-    PARTS_RECEIVED: ['IN_PROGRESS'],
-    IN_PROGRESS: ['PAUSED', 'QUALITY_CHECK'],
-    PAUSED: ['IN_PROGRESS'],
-    QUALITY_CHECK: ['READY_FOR_RELEASE', 'FAILED_QC'],
-    FAILED_QC: ['IN_PROGRESS'],
-    READY_FOR_RELEASE: ['VEHICLE_RELEASED'],
+    TASKS: ['LABOUR', 'CANCELLED'],
+    LABOUR: ['QC_PHOTOS', 'CANCELLED'],
+    QC_PHOTOS: ['BILLING', 'LABOUR', 'CANCELLED'],
+    BILLING: [],
+};
+
+const normalizeStatus = (status?: string): WorkOrderStatus => {
+    if (!status) return 'TASKS';
+    if (["DRAFT", "START", "VEHICLE_CHECKED_IN", "PARTS_REQUESTED", "PARTS_RECEIVED"].includes(status)) {
+        return "TASKS";
+    }
+    if (["IN_PROGRESS", "PAUSED", "ADDITIONAL_WORK_FOUND"].includes(status)) {
+        return "LABOUR";
+    }
+    if (["QUALITY_CHECK", "FAILED_QC", "READY_FOR_RELEASE"].includes(status)) {
+        return "QC_PHOTOS";
+    }
+    if (["VEHICLE_RELEASED", "INVOICED", "CLOSED"].includes(status)) {
+        return "BILLING";
+    }
+    return status as WorkOrderStatus;
 };
 
 const WorkOrderDetail = () => {
@@ -43,15 +54,16 @@ const WorkOrderDetail = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [wo, setWo] = useState<WorkOrder | null>(null);
+    const isInitialLoadRef = useRef(true);
+    const isReleasedOrLater = wo ? ['BILLING', 'CANCELLED'].includes(normalizeStatus(wo.status)) : false;
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const [activeTab, setActiveTab] = useState<Tab>('tasks');
     const [actionLoading, setActionLoading] = useState(false);
+    const [showGpsModal, setShowGpsModal] = useState(false);
 
     const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
-        { key: 'overview', label: t('workOrders.detail.overview'), icon: Info },
-        { key: 'tasks', label: t('workOrders.detail.tasks'), icon: ListChecks },
-        { key: 'parts', label: t('workOrders.detail.parts'), icon: Package },
-        { key: 'labour', label: t('workOrders.detail.labour'), icon: Clock },
+        { key: 'tasks', label: 'Tasks & Parts', icon: ListChecks },
+        { key: 'labour', label: 'Labour', icon: Clock },
         { key: 'qc', label: 'QC & Photos', icon: Shield },
         { key: 'billing', label: 'Billing', icon: Receipt },
     ];
@@ -77,9 +89,6 @@ const WorkOrderDetail = () => {
     const [releaseOdometer, setReleaseOdometer] = useState('');
     const [releaseNotes, setReleaseNotes] = useState('');
 
-    /* ── Odometer Entry Modal (Check-in) ── */
-    const [showOdometerModal, setShowOdometerModal] = useState(false);
-    const [odometerEntry, setOdometerEntry] = useState('');
 
     /* ── Additional Work Modal ── */
     const [showAdditionalWorkModal, setShowAdditionalWorkModal] = useState(false);
@@ -218,6 +227,15 @@ const WorkOrderDetail = () => {
             const data = await getWorkOrderById(id);
             setWo(data);
 
+            if (isInitialLoadRef.current) {
+                const normStatus = normalizeStatus(data.status);
+                if (normStatus === 'TASKS') setActiveTab('tasks');
+                else if (normStatus === 'LABOUR') setActiveTab('labour');
+                else if (normStatus === 'QC_PHOTOS') setActiveTab('qc');
+                else if (normStatus === 'BILLING') setActiveTab('billing');
+                isInitialLoadRef.current = false;
+            }
+
             // Load custom hourly rate preference
             try {
                 const rate = await getHourlyLabourRate();
@@ -280,10 +298,10 @@ const WorkOrderDetail = () => {
                     if (make || model) {
                         const nameLower = (p.partName || '').toLowerCase();
                         const descLower = (p.description || '').toLowerCase();
-                        
+
                         const matchesMake = make ? (nameLower.includes(make) || descLower.includes(make)) : true;
                         const matchesModel = model ? (nameLower.includes(model) || descLower.includes(model)) : true;
-                        
+
                         return matchesMake && matchesModel;
                     }
                     return true;
@@ -371,7 +389,7 @@ const WorkOrderDetail = () => {
                 setGpsMileage(mileageData && mileageData.length > 0 ? mileageData[0] : null);
                 console.log(trackData, 'trackData');
                 setGpsTrack(trackData || []);
-                
+
                 console.log("[GPS Component] OBD API response:", obdResponse);
                 const obdRecord = obdResponse?.data?.result?.[0] || obdResponse?.result?.[0] || null;
                 console.log("[GPS Component] OBD resolved record:", obdRecord);
@@ -395,23 +413,23 @@ const WorkOrderDetail = () => {
         const plate = vehicleObj?.legalDocs?.registrationNumber || '';
         const vin = vehicleObj?.basicDetails?.vin || '';
 
-        if ((imei || plate || vin) && activeTab === 'overview') {
+        if ((imei || plate || vin) && showGpsModal) {
             loadGps(imei, plate, vin);
-        } else {
+        } else if (!showGpsModal) {
             setGpsData(null);
             setGpsMileage(null);
             setGpsTrack([]);
             setResolvedImei('');
         }
-    }, [wo?.vehicleId, activeTab, loadGps]);
+    }, [wo?.vehicleId, showGpsModal, loadGps]);
 
     const handleBackendError = (err: any) => {
         const msg = (err.response?.data?.message || err.message || '').toLowerCase();
         if (msg.includes('labour') || msg.includes('work start') || msg.includes('times must be updated') || msg.includes('hours must be greater') || msg.includes('actual labour')) setActiveTab('labour');
-        else if (msg.includes('part')) setActiveTab('parts');
+        else if (msg.includes('part')) setActiveTab('tasks');
         else if (msg.includes('task')) setActiveTab('tasks');
         else if (msg.includes('photo') || msg.includes('qc')) setActiveTab('qc');
-        else if (msg.includes('odometer') || msg.includes('entry') || msg.includes('additional work')) setActiveTab('overview');
+        else if (msg.includes('odometer') || msg.includes('entry') || msg.includes('additional work')) setActiveTab('tasks');
         else if (msg.includes('payment') || msg.includes('bill')) setActiveTab('billing');
         return err;
     };
@@ -429,14 +447,65 @@ const WorkOrderDetail = () => {
         }
     };
 
+    const handleTransition = async (targetStatus: WorkOrderStatus, targetTab: Tab) => {
+        if (targetStatus === 'LABOUR' && wo?.status === 'TASKS') {
+            const doableTasks = (wo.tasks || []).filter(t => t.isDoable);
+            if (doableTasks.length === 0) {
+                toast.error("At least one task must be selected before proceeding to Labour.");
+                setActiveTab('tasks');
+                return;
+            }
+        }
+
+        if (targetStatus === 'QC_PHOTOS' && wo?.status === 'LABOUR') {
+            if (!wo.workStartTime || !wo.workEndTime) {
+                toast.error("Please log labour start and end times before proceeding to QC & Photos.");
+                setActiveTab('labour');
+                return;
+            }
+        }
+
+        if (targetStatus === 'BILLING' && normalizeStatus(wo?.status) === 'QC_PHOTOS') {
+            const doableTasks = (wo?.tasks || []).filter(t => t.isDoable);
+            const incompleteTasks = doableTasks.filter(t => t.status !== 'COMPLETED' && t.status !== 'SKIPPED');
+            if (incompleteTasks.length > 0) {
+                toast.error(`Please complete or skip all tasks: ${incompleteTasks.length} task(s) remaining.`);
+                setActiveTab('qc');
+                return;
+            }
+
+            const activeParts = (wo?.parts || []).filter(p => !p.taskTemplateId || doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString()));
+            const uninstalledParts = activeParts.filter(p => p.status !== 'INSTALLED' && p.status !== 'RETURNED');
+            if (uninstalledParts.length > 0) {
+                toast.error(`Please install or return all parts: ${uninstalledParts.length} part(s) remaining.`);
+                setActiveTab('qc');
+                return;
+            }
+
+            const missingTaskPhotos = doableTasks.filter(t =>
+                t.status === 'COMPLETED' && !wo?.photos.some(p => p.caption === `TASK_${t._id}`)
+            );
+            if (missingTaskPhotos.length > 0) {
+                toast.error(`Please upload photos for completed tasks: ${missingTaskPhotos.map(t => t.description).join(', ')}`);
+                setActiveTab('qc');
+                return;
+            }
+        }
+
+        await doAction(async () => {
+            const res = await progressWorkOrderStatus(id!, targetStatus);
+            setActiveTab(targetTab);
+            return res;
+        });
+    };
+
     /* ── Helpers ── */
     const getStatusBadge = (status: string) => {
-        if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
-        if (['DRAFT'].includes(status)) return 'badge-gray';
-        if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
-        if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
-        if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
-        if (['CANCELLED'].includes(status)) return 'badge-red';
+        if (status === 'TASKS') return 'badge-blue';
+        if (status === 'LABOUR') return 'badge-lime';
+        if (status === 'QC_PHOTOS') return 'badge-orange';
+        if (status === 'BILLING') return 'badge-green';
+        if (status === 'CANCELLED') return 'badge-red';
         return 'badge-gray';
     };
     const fmtStatus = (s: string) => s.replace(/_/g, ' ');
@@ -462,7 +531,7 @@ const WorkOrderDetail = () => {
     const nextStatuses = ALLOWED_TRANSITIONS[wo.status] || [];
 
     return (
-        <div className="space-y-5 animate-fadeInUp">
+        <div className="space-y-5 animate-fadeInUp pb-56 md:pb-28">
             {/* ── Header ── */}
             <div className="flex items-start gap-3 flex-wrap">
                 <button className="btn-icon flex-shrink-0" onClick={() => navigate('/work-orders')} id="back-to-list"><ArrowLeft size={18} /></button>
@@ -488,206 +557,7 @@ const WorkOrderDetail = () => {
                 </div>
             </div>
 
-            {/* ── Status Stepper (Workflow) ── */}
-            <StatusStepper currentStatus={wo.status} t_func={t} />
 
-
-            {/* ── Status Actions ── */}
-            {nextStatuses.length > 0 && (
-                <div className="glass-card p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>{t('workOrders.detail.actions')}</p>
-                    <div className="flex flex-wrap gap-2">
-                        {nextStatuses.filter(ns => ns !== 'VEHICLE_RELEASED').map((ns) => (
-                            <button key={ns} disabled={actionLoading}
-                                className="btn-secondary text-xs !py-2 !px-4"
-                                onClick={() => doAction(async () => {
-                                    let updateData: any = ns === 'IN_PROGRESS' ? { assignedTechnician: getUserId() || undefined } : undefined;
-
-                                    if (ns === 'VEHICLE_CHECKED_IN') {
-                                        setShowOdometerModal(true);
-                                        return; // Modal handles the submission
-                                    }
-
-                                    if (ns === 'PAUSED') {
-                                        const promptMsg = 'Reason for pausing:';
-                                        const reason = window.prompt(promptMsg);
-                                        if (!reason) return;
-                                        updateData = { pauseReason: reason };
-                                    }
-
-                                    if (ns === 'READY_FOR_RELEASE') {
-                                        const incompleteTasks = (wo.tasks || []).filter(t => t.status !== 'COMPLETED' && t.status !== 'SKIPPED');
-                                        if (incompleteTasks.length > 0) {
-                                            toast.error(`Please complete or skip all tasks: ${incompleteTasks.length} task(s) remaining.`);
-                                            setActiveTab('qc');
-                                            return;
-                                        }
-
-                                        const uninstalledParts = (wo.parts || []).filter(p => p.status !== 'INSTALLED' && p.status !== 'RETURNED');
-                                        if (uninstalledParts.length > 0) {
-                                            toast.error(`Please install or return all parts: ${uninstalledParts.length} part(s) remaining.`);
-                                            setActiveTab('qc');
-                                            return;
-                                        }
-
-                                        const missingTaskPhotos = (wo.tasks || []).filter(t => 
-                                            t.status === 'COMPLETED' && !wo.photos.some(p => p.caption === `TASK_${t._id}`)
-                                        );
-                                        if (missingTaskPhotos.length > 0) {
-                                            toast.error(`Please upload photos for completed tasks: ${missingTaskPhotos.map(t => t.description).join(', ')}`);
-                                            setActiveTab('qc');
-                                            return;
-                                        }
-
-                                        const missingPartPhotos = (wo.parts || []).filter(p => 
-                                            p.status === 'INSTALLED' && !wo.photos.some(ph => ph.caption === `PART_${p._id}`)
-                                        );
-                                        if (missingPartPhotos.length > 0) {
-                                            toast.error(`Please upload photos for installed parts: ${missingPartPhotos.map(p => p.partName).join(', ')}`);
-                                            setActiveTab('qc');
-                                            return;
-                                        }
-                                    }
-
-                                    if (wo.status === 'VEHICLE_CHECKED_IN' && wo.tasks.length === 0) {
-                                        toast.error("Please add at least one task before proceeding.");
-                                        setActiveTab('tasks');
-                                        return;
-                                    }
-
-                                    const res = await progressWorkOrderStatus(id!, ns, undefined, updateData);
-                                    if (ns === 'IN_PROGRESS') {
-                                        setActiveTab('labour');
-                                    } else if (ns === 'QUALITY_CHECK') {
-                                        setActiveTab('qc');
-                                    } else if (ns === 'READY_FOR_RELEASE') {
-                                        setActiveTab('billing');
-                                    }
-                                    return res;
-                                })}
-                            >
-                                <ChevronRight size={14} />
-                                {fmtStatus(ns)}
-                            </button>
-                        ))}
-
-                        {wo.status === 'IN_PROGRESS' && (
-                            <button disabled={actionLoading} className="btn-secondary !border-orange/30 !text-orange text-xs !py-2 !px-4"
-                                onClick={() => setShowAdditionalWorkModal(true)}
-                            >
-                                <AlertTriangle size={14} /> ADDITIONAL WORK FOUND
-                            </button>
-                        )}
-
-                        {wo.status === 'READY_FOR_RELEASE' && (
-                            <div className="flex flex-col gap-2">
-                                <button
-                                    disabled={actionLoading || !bill || bill.paymentStatus !== 'PAID'}
-                                    className={`btn-primary text-xs !py-2 !px-4 ${(!bill || bill.paymentStatus !== 'PAID') ? 'opacity-50 !cursor-not-allowed grayscale' : ''}`}
-                                    onClick={() => {
-                                        doAction(() => releaseVehicle(id!, { odometerAtRelease: releaseOdometer ? Number(releaseOdometer) : undefined, releaseNotes: releaseNotes || undefined }));
-                                    }}
-                                >
-                                    <CheckCircle2 size={14} /> Release Vehicle
-                                </button>
-                                {(!bill || bill.paymentStatus !== 'PAID') && (
-                                    <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider animate-pulse">
-                                        ⚠️ Payment Required Before Release
-                                    </p>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* ── Odometer Entry Modal ── */}
-            {showOdometerModal && (
-                <div className="glass-card p-5 border-lime/30 animate-scaleIn">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 rounded-lg bg-lime/10 text-lime">
-                            <Clock size={20} />
-                        </div>
-                        <div>
-                            <h3 className="text-sm font-bold">{t('workOrders.detail.odometerEntryTitle') || 'Vehicle Check-in'}</h3>
-                            <p className="text-xs text-muted-foreground">{t('workOrders.detail.odometerEntrySubtitle') || 'Please record the current mileage'}</p>
-                        </div>
-                    </div>
-
-                    <div className="space-y-4">
-                        {(() => {
-                            const vehicleObj = typeof wo.vehicleId === 'object' ? wo.vehicleId : null;
-                            if (!vehicleObj) return null;
-
-                            const make = vehicleObj.basicDetails?.make || '';
-                            const model = vehicleObj.basicDetails?.model || '';
-                            const year = vehicleObj.basicDetails?.year || '';
-                            const vin = vehicleObj.basicDetails?.vin || 'N/A';
-                            const plateNumber = vehicleObj.legalDocs?.registrationNumber || 'N/A';
-
-                            return (
-                                <div className="p-3 rounded-lg border space-y-2 text-xs" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
-                                    <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Vehicle Info</div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <span className="block text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Vehicle</span>
-                                            <span className="font-semibold text-white">{make} {model} {year}</span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Plate Number</span>
-                                            <span className="font-semibold text-white font-mono">{plateNumber}</span>
-                                        </div>
-                                        <div className="col-span-2 border-t pt-1.5" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                                            <span className="block text-[9px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>VIN / Chassis No.</span>
-                                            <span className="font-semibold text-white font-mono">{vin}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
-                        <div>
-                            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
-                                {t('workOrders.detail.odometerAtEntry') || 'Odometer at Entry (KM)'}
-                            </label>
-                            <input
-                                type="number"
-                                value={odometerEntry}
-                                onChange={(e) => setOdometerEntry(e.target.value)}
-                                placeholder="E.g. 45200"
-                                className="input-field w-full"
-                            />
-                        </div>
-
-                        <div className="flex gap-2">
-                            <button
-                                className="btn-secondary flex-1 text-xs"
-                                onClick={() => {
-                                    setShowOdometerModal(false);
-                                    setOdometerEntry('');
-                                }}
-                            >
-                                {t('common.cancel')}
-                            </button>
-                            <button
-                                className="btn-primary flex-1 text-xs"
-                                disabled={!odometerEntry || actionLoading}
-                                onClick={() => doAction(async () => {
-                                    const res = await progressWorkOrderStatus(id!, 'VEHICLE_CHECKED_IN', undefined, {
-                                        odometerAtEntry: Number(odometerEntry)
-                                    });
-                                    setShowOdometerModal(false);
-                                    setOdometerEntry('');
-                                    setActiveTab('tasks');
-                                    return res;
-                                })}
-                            >
-                                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} {t('common.confirm')}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ── Additional Work Modal ── */}
             {showAdditionalWorkModal && (
@@ -768,6 +638,39 @@ const WorkOrderDetail = () => {
                 </div>
             )}
 
+              {/* ── Overview Summary Banner ── */}
+            <div className="glass-card p-5 mb-4 grid grid-cols-1 md:grid-cols-3 gap-4 border border-[var(--border-main)]/50 rounded-2xl relative overflow-hidden">
+                <div className="space-y-1">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Fault Description</span>
+                    <p className="text-sm font-semibold text-white">{wo.faultDescription}</p>
+                </div>
+                <div className="space-y-1">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Vehicle Details</span>
+                    <p className="text-sm font-semibold text-white">{vehicleLabel()}</p>
+                </div>
+                <div className="flex items-center justify-between md:justify-end gap-3">
+                    <div className="text-left md:text-right">
+                        <span className="block text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Priority / Type</span>
+                        <span className="text-xs font-semibold text-white">{wo.priority} • {wo.workOrderType.replace(/_/g, ' ')}</span>
+                    </div>
+                    {/* GPS Tracking Trigger */}
+                    <button 
+                        className="btn-secondary !py-2 !px-4 text-xs font-bold uppercase flex items-center gap-1.5"
+                        onClick={() => {
+                            const vehicleObj = typeof wo.vehicleId === 'object' ? wo.vehicleId : null;
+                            const gpsImei = vehicleObj?.gpsSerialNumber;
+                            const plate = vehicleObj?.legalDocs?.registrationNumber || '';
+                            const vin = vehicleObj?.basicDetails?.vin || '';
+                            loadGps(gpsImei, plate, vin);
+                            setShowGpsModal(true);
+                        }}
+                    >
+                        <MapPin size={14} className="text-lime" style={{ color: 'var(--brand-lime)' }} />
+                        GPS Live
+                    </button>
+                </div>
+            </div>
+
             {/* ── Tabs ── */}
             <div className="tab-nav">
                 {TABS.map((t_tab) => (
@@ -775,560 +678,354 @@ const WorkOrderDetail = () => {
                         onClick={() => setActiveTab(t_tab.key)}>
                         <t_tab.icon size={16} className="inline mr-1.5" />{t_tab.label}
                         {t_tab.key === 'tasks' && wo.tasks.length > 0 && <span className="ml-1 text-[10px] opacity-70">({wo.tasks.length})</span>}
-                        {t_tab.key === 'parts' && wo.parts.length > 0 && <span className="ml-1 text-[10px] opacity-70">({wo.parts.length})</span>}
                     </button>
                 ))}
             </div>
 
-            {/* ── OVERVIEW TAB ── */}
-            {activeTab === 'overview' && (
-                <div className="space-y-4 animate-fadeInUp">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="glass-card p-5 space-y-4">
-                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.overview')}</h3>
-                            <InfoRow label={t('dashboard.table.type')} value={t(`workOrders.types.${wo.workOrderType.toLowerCase()}`, { defaultValue: wo.workOrderType.replace(/_/g, ' ') })} />
-                            <InfoRow label={t('dashboard.table.priority')} value={t(`workOrders.priorities.${wo.priority.toLowerCase()}`, { defaultValue: wo.priority })} />
-                            <InfoRow label={t('workOrders.create.vehicle')} value={vehicleLabel()} />
-                            {(() => {
-                                const v = wo.vehicleId as any;
-                                if (v?.currentDriver) {
-                                    return (
-                                        <InfoRow
-                                            label="Assigned Driver"
-                                            value={`${v.currentDriver.personalInfo?.fullName} (${v.currentDriver.driverId}) ${v.currentDriver.personalInfo?.phone || ''}`}
-                                        />
-                                    );
-                                }
-                                return null;
-                            })()}
-                            <InfoRow label={t('common.created')} value={fmtDate(wo.createdAt)} />
-                            <InfoRow label={t('common.updated')} value={fmtDate(wo.updatedAt)} />
+            {/* ── TASKS & PARTS TAB ── */}
+            {activeTab === 'tasks' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fadeInUp">
+                    {/* Tasks Section */}
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.tasks')} ({wo.tasks.length})</h3>
+                            {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                <button className="btn-primary text-xs !py-2" onClick={() => setShowTaskForm(!showTaskForm)}>
+                                    <PlusCircle size={14} /> Add Task
+                                </button>
+                            )}
                         </div>
-                        <div className="glass-card p-5 space-y-4">
-                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.faultCost')}</h3>
-                            <div>
-                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('workOrders.create.fault')}</p>
-                                <p className="text-sm mt-1" style={{ color: 'var(--text-main)' }}>{wo.faultDescription}</p>
-                            </div>
-                            <InfoRow label={t('workOrders.create.labourHrs')} value={String(wo.estimatedLabourHours)} />
-                            <InfoRow label="Actual Labour Hours" value={String(wo.actualLabourHours)} />
-                            <InfoRow label={t('workOrders.create.partsCost')} value={`$${wo.estimatedPartsCost.toFixed(2)}`} />
-                            <InfoRow label="Actual Parts Cost" value={`$${wo.actualPartsCost.toFixed(2)}`} />
-                            {wo.notes && <InfoRow label={t('workOrders.create.notes')} value={wo.notes} />}
-                        </div>
-                    </div>
+                        {showTaskForm && (
+                            <div className="glass-card p-5 space-y-4 border border-[var(--border-main)]/50 rounded-2xl animate-fadeIn">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">Quick Add Specific Task</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                    {[
+                                        { name: 'OIL FILTER CHANGE', category: 'Mechanical' as const, hours: 0.5 },
+                                        { name: 'AIR FILTER CHANGE', category: 'Mechanical' as const, hours: 0.5 },
+                                        { name: 'AC FILTER CHANGE', category: 'Electrical' as const, hours: 0.5 },
+                                        { name: 'COOLANT TOP-UP', category: 'Fluids' as const, hours: 0.5 },
+                                        { name: 'ENGINE OIL CHANGE', category: 'Fluids' as const, hours: 0.5 },
+                                    ].map((preTask) => (
+                                        <button
+                                            key={preTask.name}
+                                            type="button"
+                                            disabled={actionLoading}
+                                            onClick={() => doAction(async () => {
+                                                await addTask(id!, {
+                                                    description: preTask.name,
+                                                    category: preTask.category,
+                                                    estimatedHours: preTask.hours
+                                                });
+                                            })}
+                                            className="flex flex-col p-4 rounded-xl bg-white/5 border border-white/5 hover:border-[var(--brand-lime)]/50 hover:bg-white/10 text-left transition-all active:scale-[0.98] cursor-pointer group"
+                                        >
+                                            <span className="text-xs font-bold text-white group-hover:text-[var(--brand-lime)] transition-colors">{preTask.name}</span>
+                                            <span className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{preTask.category} • {preTask.hours}h</span>
+                                        </button>
+                                    ))}
 
-                    {/* GPS Section */}
-                    {(() => {
-                        const vehicleObj = typeof wo.vehicleId === 'object' ? wo.vehicleId : null;
-                        const gpsImei = vehicleObj?.gpsSerialNumber;
-                        const plate = vehicleObj?.legalDocs?.registrationNumber || '';
-                        const vin = vehicleObj?.basicDetails?.vin || '';
-
-                        return (
-                            <div className="glass-card p-5 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-sm font-semibold flex items-center gap-2 flex-wrap" style={{ color: 'var(--text-main)' }}>
-                                        <MapPin size={16} className="text-lime" style={{ color: 'var(--brand-lime)' }} /> Real-time GPS Tracking
-                                        {gpsData?.matchType && (
-                                            <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] uppercase tracking-wider font-bold">
-                                                {gpsData.matchType}
-                                            </span>
-                                        )}
-                                    </h3>
+                                    {/* Add New Task (Custom) Option */}
                                     <button
-                                        className="btn-secondary !py-1 !px-2.5 text-[10px] uppercase font-bold flex items-center gap-1.5"
-                                        onClick={() => loadGps(gpsImei, plate, vin)}
-                                        disabled={gpsLoading}
+                                        type="button"
+                                        onClick={() => setCustomTaskMode(true)}
+                                        className="flex flex-col items-center justify-center p-4 rounded-xl bg-white/5 border border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] text-center transition-all cursor-pointer min-h-[72px]"
                                     >
-                                        {gpsLoading ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-                                        Refresh GPS Status
+                                        <span className="text-xs font-black uppercase text-[var(--brand-lime)] tracking-widest flex items-center gap-1.5">
+                                            <PlusCircle size={14} /> ADD NEW TASK
+                                        </span>
                                     </button>
                                 </div>
 
-                                {gpsLoading && !gpsData ? (
-                                    <div className="flex items-center justify-center py-10">
-                                        <Loader2 className="animate-spin text-lime" size={24} style={{ color: 'var(--brand-lime)' }} />
-                                        <span className="text-xs text-muted-foreground ml-2" style={{ color: 'var(--text-muted)' }}>Fetching GPS tracking data...</span>
+                                {customTaskMode && (
+                                    <div className="border-t border-[var(--border-main)]/30 pt-4 space-y-3 mt-2 animate-fadeIn">
+                                        <h5 className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Custom Task Details</h5>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Task Category</label>
+                                                <select
+                                                    value={taskForm.category || ''}
+                                                    onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value as AddTaskPayload['category'] })}
+                                                    className="input-field w-full"
+                                                >
+                                                    {['Mechanical', 'Electrical', 'Body', 'Tyres', 'Fluids', 'Other'].map((c) => (
+                                                        <option key={c} value={c}>{c}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Est. Hours</label>
+                                                <input
+                                                    type="number"
+                                                    placeholder="Est. hours"
+                                                    value={taskForm.estimatedHours || ''}
+                                                    onChange={(e) => setTaskForm({ ...taskForm, estimatedHours: Number(e.target.value) })}
+                                                    className="input-field w-full"
+                                                    min="0"
+                                                    step="0.5"
+                                                />
+                                            </div>
+                                            <div className="space-y-1 sm:col-span-3">
+                                                <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Task Description</label>
+                                                <input
+                                                    placeholder="Enter custom task description..."
+                                                    value={taskForm.description}
+                                                    onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                                                    className="input-field w-full"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 pt-2">
+                                            <button
+                                                type="button"
+                                                className="btn-secondary text-xs flex-1"
+                                                onClick={() => {
+                                                    setCustomTaskMode(false);
+                                                    setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
+                                                }}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn-primary text-xs flex-1"
+                                                disabled={!taskForm.description || actionLoading}
+                                                onClick={() => doAction(async () => {
+                                                    await addTask(id!, taskForm);
+                                                    setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
+                                                })}
+                                            >
+                                                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : 'Create Custom Task'}
+                                            </button>
+                                        </div>
                                     </div>
-                                ) : !gpsData ? (
-                                    <div className="text-center py-6 border border-dashed rounded-lg border-white/10" style={{ background: 'rgba(255,255,255,0.01)' }}>
-                                        <p className="text-xs text-muted-foreground" style={{ color: 'var(--text-muted)' }}>
-                                            {!resolvedImei ? 'No direct GPS IMEI configured, and auto-match could not find a device in the GPS registry.' : `Unable to fetch current GPS coordinates or device offline (IMEI: ${resolvedImei}).`}
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>IMEI Number</span>
-                                            <span className="text-xs font-semibold text-white font-mono">{gpsData.imei || resolvedImei}</span>
-                                        </div>
+                                )}
 
-                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Coordinates</span>
-                                            <span className="text-xs font-semibold text-white font-mono">{gpsData.lat.toFixed(5)}, {gpsData.lng.toFixed(5)}</span>
-                                        </div>
-
-                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Engine Status (ACC)</span>
-                                            <span className={`text-xs font-semibold uppercase tracking-wider ${gpsData.accStatus === 1 ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
-                                                ● {gpsData.accStatus === 1 ? 'ON' : 'OFF'}
-                                            </span>
-                                        </div>
-
-                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Speed / Battery</span>
-                                            <span className="text-xs font-semibold text-white">{gpsData.speed} KM/H • 🔋 {gpsData.electQuantity}%</span>
-                                        </div>
-
-                                        <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Last Sync (GPS Time)</span>
-                                            <span className="text-xs font-semibold text-white font-mono">{new Date(gpsData.gpsTime || gpsData.hbTime).toLocaleString()}</span>
-                                        </div>
-
-                                        {gpsMileage && (
-                                            <>
-                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Total Odometer Mileage</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {(gpsMileage.totalMileage / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} KM
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Today's Trip Distance</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {(gpsMileage.distance / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} KM
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Today's Average Speed</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {gpsMileage.avgSpeed} KM/H
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Today's Drive Duration</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {gpsMileage.elapsed > 0 ? `${Math.floor(gpsMileage.elapsed / 60)}m ${gpsMileage.elapsed % 60}s` : '0m'}
-                                                    </span>
-                                                </div>
-                                            </>
-                                        )}
-
-                                        {obdData && (
-                                            <>
-                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Odometer Reading</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {obdData.odometerReading ? `${parseFloat(obdData.odometerReading).toLocaleString(undefined, { maximumFractionDigits: 1 })} KM` : 'N/A'}
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Accum. Mileage</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {obdData.deviceAccumulatedMileage ? `${parseFloat(obdData.deviceAccumulatedMileage).toLocaleString(undefined, { maximumFractionDigits: 1 })} KM` : 'N/A'}
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Remaining Fuel</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {obdData.remainingFuelPercentage ? `${obdData.remainingFuelPercentage}%` : 'N/A'}
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Engine RPM</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {obdData.currentRPM ? `${obdData.currentRPM} RPM` : 'N/A'}
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Coolant Temp</span>
-                                                    <span className="text-xs font-semibold text-white font-mono">
-                                                        {obdData.coolantTemperature ? `${obdData.coolantTemperature}°C` : 'N/A'}
-                                                    </span>
-                                                </div>
-                                                <div className="p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Battery Voltage</span>
-                                                    <span className="text-xs font-semibold text-white font-mono font-mono">
-                                                        {obdData.vehicleBatterVoltage ? `${(parseFloat(obdData.vehicleBatterVoltage) / 10).toFixed(1)} V` : 'N/A'}
-                                                    </span>
-                                                </div>
-                                                {obdData.vin && (
-                                                    <div className="sm:col-span-2 p-3 rounded-lg border border-purple-500/20" style={{ background: 'rgba(147, 51, 234, 0.02)' }}>
-                                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Vehicle VIN</span>
-                                                        <span className="text-xs font-semibold text-white font-mono break-all">{obdData.vin}</span>
+                                <div className="flex justify-end pt-2 border-t border-[var(--border-main)]/20">
+                                    <button
+                                        type="button"
+                                        className="text-[10px] uppercase font-bold text-gray-400 hover:text-white"
+                                        onClick={() => {
+                                            setShowTaskForm(false);
+                                            setCustomTaskMode(false);
+                                        }}
+                                    >
+                                        Close Menu
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {wo.tasks.length === 0 ? (
+                            <div className="glass-card p-8 text-center">
+                                <ListChecks size={36} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
+                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('workOrders.list.empty')}</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {wo.tasks.map((task) => {
+                                    const isDoable = task.isDoable ?? false;
+                                    return (
+                                        <div
+                                            key={task._id}
+                                            className={`glass-card p-4 flex items-center justify-between gap-3 border transition-all duration-300 ${
+                                                isDoable
+                                                    ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/5 via-[var(--brand-lime-alpha)]/1 to-transparent'
+                                                    : 'border-[var(--border-main)]/50'
+                                            }`}
+                                        >
+                                            <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                {!['BILLING', 'CANCELLED'].includes(wo.status) ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={actionLoading}
+                                                        onClick={() => doAction(() => toggleTaskDoable(id!, task._id))}
+                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${
+                                                            isDoable
+                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20'
+                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
+                                                        }`}
+                                                        title={isDoable ? "Mark as Not Applicable" : "Mark as Applicable & Assign Parts"}
+                                                    >
+                                                        <CheckCircle2 size={12} className="stroke-[3]" />
+                                                    </button>
+                                                ) : (
+                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 mt-0.5 shrink-0 ${isDoable ? 'bg-[var(--brand-lime)]/50 border-[var(--brand-lime)]/50 text-black/50' : 'border-[var(--border-main)]/30 text-transparent'}`}>
+                                                        <CheckCircle2 size={12} className="stroke-[3]" />
                                                     </div>
                                                 )}
-                                            </>
-                                        )}
-
-                                        {gpsData.locDesc && (
-                                            <div className="sm:col-span-2 md:col-span-3 p-3 rounded-lg border" style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.05)' }}>
-                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Current Address</span>
-                                                <span className="text-xs font-medium text-white">{gpsData.locDesc}</span>
+                                                <div className="min-w-0 select-none">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span
+                                                            onClick={() => {
+                                                                if (!['BILLING', 'CANCELLED'].includes(wo.status)) {
+                                                                    doAction(() => toggleTaskDoable(id!, task._id));
+                                                                }
+                                                            }}
+                                                            className="text-sm font-medium cursor-pointer hover:text-[var(--brand-lime)] transition-colors"
+                                                            style={{ color: 'var(--text-main)' }}
+                                                        >
+                                                            {task.description}
+                                                        </span>
+                                                        <span className={`badge text-[10px] ${task.status === 'COMPLETED' ? 'badge-green' : task.status === 'IN_PROGRESS' ? 'badge-lime' : 'badge-gray'}`}>
+                                                            {task.status}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                                                        {task.category} • Est: {task.estimatedHours || 0}h{task.actualHours ? ` • Actual: ${task.actualHours}h` : ''}
+                                                    </p>
+                                                </div>
                                             </div>
-                                        )}
-
-                                        <div className={`p-0.5 flex items-center justify-center ${gpsData.locDesc ? 'col-span-1 sm:col-span-2 md:col-span-4' : 'sm:col-span-2 md:col-span-4'}`}>
-                                            <a
-                                                href={`https://www.google.com/maps/search/?api=1&query=${gpsData.lat},${gpsData.lng}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="btn-primary w-full text-center text-xs flex items-center justify-center gap-1.5 !py-2.5"
-                                            >
-                                                <ExternalLink size={12} /> View on Google Maps
-                                            </a>
+                                            <div className="flex gap-1 flex-shrink-0">
+                                                {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                                    <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
+                                                        onClick={() => {
+                                                            if (window.confirm('Are you sure you want to remove this task?')) {
+                                                                doAction(() => removeTask(id!, task._id));
+                                                            }
+                                                        }}>
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-
-                                {gpsTrack && gpsTrack.length > 0 && (
-                                    <div className="border-t pt-4" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                                        <h4 className="text-xs font-semibold mb-2.5 flex items-center gap-1.5" style={{ color: 'var(--text-main)' }}>
-                                            <Clock size={13} className="text-lime" style={{ color: 'var(--brand-lime)' }} /> Recent Historical Route Points
-                                        </h4>
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-[11px] border-collapse text-left">
-                                                <thead>
-                                                    <tr className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Time</th>
-                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Latitude</th>
-                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Longitude</th>
-                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Speed</th>
-                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider" style={{ color: 'var(--text-muted)' }}>Mileage</th>
-                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-right" style={{ color: 'var(--text-muted)' }}>Link</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {gpsTrack.map((pt, idx) => (
-                                                        <tr key={idx} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.02)' }}>
-                                                            <td className="py-2 text-white font-mono">{pt.gpsTime}</td>
-                                                            <td className="py-2 text-white font-mono">{pt.lat.toFixed(5)}</td>
-                                                            <td className="py-2 text-white font-mono">{pt.lng.toFixed(5)}</td>
-                                                            <td className="py-2 text-white font-mono">{pt.gpsSpeed !== undefined ? pt.gpsSpeed : (pt.speed || 0)} km/h</td>
-                                                            <td className="py-2 text-white font-mono">{pt.mileage !== undefined ? `${(pt.mileage / 1000).toFixed(2)} km` : 'N/A'}</td>
-                                                            <td className="py-2 text-right">
-                                                                <a
-                                                                    href={`https://www.google.com/maps/search/?api=1&query=${pt.lat},${pt.lng}`}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-lime hover:underline flex items-center justify-end gap-1 font-semibold"
-                                                                    style={{ color: 'var(--brand-lime)' }}
-                                                                >
-                                                                    Map <ExternalLink size={10} />
-                                                                </a>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
+                                    );
+                                })}
                             </div>
-                        );
-                    })()}
-                </div>
-            )}
-
-            {/* ══════════════════ TASKS TAB ══════════════════ */}
-            {activeTab === 'tasks' && (
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.tasks')} ({wo.tasks.length})</h3>
-                        <button className="btn-primary text-xs !py-2" onClick={() => setShowTaskForm(!showTaskForm)}>
-                            <PlusCircle size={14} /> {t('common.addItem')}
-                        </button>
+                        )}
                     </div>
-                    {showTaskForm && (
-                        <div className="glass-card p-5 space-y-4 border border-[var(--border-main)]/50 rounded-2xl animate-fadeIn">
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">Quick Add Specific Task</h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                {[
-                                    { name: 'OIL FILTER CHANGE', category: 'Mechanical' as const, hours: 0.5 },
-                                    { name: 'AIR FILTER CHANGE', category: 'Mechanical' as const, hours: 0.5 },
-                                    { name: 'AC FILTER CHANGE', category: 'Electrical' as const, hours: 0.5 },
-                                    { name: 'COOLANT TOP-UP', category: 'Fluids' as const, hours: 0.5 },
-                                    { name: 'ENGINE OIL CHANGE', category: 'Fluids' as const, hours: 0.5 },
-                                ].map((preTask) => (
-                                    <button
-                                        key={preTask.name}
-                                        type="button"
-                                        disabled={actionLoading}
-                                        onClick={() => doAction(async () => {
-                                            await addTask(id!, {
-                                                description: preTask.name,
-                                                category: preTask.category,
-                                                estimatedHours: preTask.hours
-                                            });
-                                        })}
-                                        className="flex flex-col p-4 rounded-xl bg-white/5 border border-white/5 hover:border-[var(--brand-lime)]/50 hover:bg-white/10 text-left transition-all active:scale-[0.98] cursor-pointer group"
-                                    >
-                                        <span className="text-xs font-bold text-white group-hover:text-[var(--brand-lime)] transition-colors">{preTask.name}</span>
-                                        <span className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">{preTask.category} • {preTask.hours}h</span>
-                                    </button>
-                                ))}
 
-                                {/* Add New Task (Custom) Option */}
-                                <button
-                                    type="button"
-                                    onClick={() => setCustomTaskMode(true)}
-                                    className="flex flex-col items-center justify-center p-4 rounded-xl bg-white/5 border border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:bg-[var(--brand-lime-alpha)] text-center transition-all cursor-pointer min-h-[72px]"
-                                >
-                                    <span className="text-xs font-black uppercase text-[var(--brand-lime)] tracking-widest flex items-center gap-1.5">
-                                        <PlusCircle size={14} /> ADD NEW TASK
-                                    </span>
+                    {/* Parts Section */}
+                    <div className="space-y-4 lg:border-l lg:border-[var(--border-main)]/20 lg:pl-8">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.parts')} ({wo.parts.length})</h3>
+                            {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                <button className="btn-primary text-xs !py-2" onClick={() => setShowPartForm(!showPartForm)}>
+                                    <PlusCircle size={14} /> Add Part
                                 </button>
-                            </div>
-
-                            {customTaskMode && (
-                                <div className="border-t border-[var(--border-main)]/30 pt-4 space-y-3 mt-2 animate-fadeIn">
-                                    <h5 className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Custom Task Details</h5>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                        <div className="space-y-1">
-                                            <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Task Category</label>
-                                            <select
-                                                value={taskForm.category || ''}
-                                                onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value as AddTaskPayload['category'] })}
-                                                className="input-field w-full"
-                                            >
-                                                {['Mechanical', 'Electrical', 'Body', 'Tyres', 'Fluids', 'Other'].map((c) => (
-                                                    <option key={c} value={c}>{c}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Est. Hours</label>
-                                            <input
-                                                type="number"
-                                                placeholder="Est. hours"
-                                                value={taskForm.estimatedHours || ''}
-                                                onChange={(e) => setTaskForm({ ...taskForm, estimatedHours: Number(e.target.value) })}
-                                                className="input-field w-full"
-                                                min="0"
-                                                step="0.5"
-                                            />
-                                        </div>
-                                        <div className="space-y-1 sm:col-span-3">
-                                            <label className="text-[9px] uppercase font-bold text-gray-400 ml-1">Task Description</label>
-                                            <input
-                                                placeholder="Enter custom task description..."
-                                                value={taskForm.description}
-                                                onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                                                className="input-field w-full"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2 pt-2">
-                                        <button
-                                            type="button"
-                                            className="btn-secondary text-xs flex-1"
-                                            onClick={() => {
-                                                setCustomTaskMode(false);
-                                                setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
-                                            }}
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn-primary text-xs flex-1"
-                                            disabled={!taskForm.description || actionLoading}
-                                            onClick={() => doAction(async () => {
-                                                await addTask(id!, taskForm);
-                                                setTaskForm({ description: '', category: 'Mechanical', estimatedHours: 1 });
-                                            })}
-                                        >
-                                            {actionLoading ? <Loader2 size={14} className="animate-spin" /> : 'Create Custom Task'}
-                                        </button>
-                                    </div>
-                                </div>
                             )}
-
-                            <div className="flex justify-end pt-2 border-t border-[var(--border-main)]/20">
-                                <button
-                                    type="button"
-                                    className="text-[10px] uppercase font-bold text-gray-400 hover:text-white"
-                                    onClick={() => {
-                                        setShowTaskForm(false);
-                                        setCustomTaskMode(false);
-                                    }}
-                                >
-                                    Close Menu
-                                </button>
-                            </div>
                         </div>
-                    )}
-                    {wo.tasks.length === 0 ? (
-                        <div className="glass-card p-8 text-center">
-                            <ListChecks size={36} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
-                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('workOrders.list.empty')}</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {wo.tasks.map((task) => (
-                                <div key={task._id} className="glass-card p-4 flex items-start gap-3">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{task.description}</p>
-                                            <span className={`badge text-[10px] ${task.status === 'COMPLETED' ? 'badge-green' : task.status === 'IN_PROGRESS' ? 'badge-lime' : 'badge-gray'}`}>
-                                                {task.status}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                                            {task.category} • Est: {task.estimatedHours || 0}h{task.actualHours ? ` • Actual: ${task.actualHours}h` : ''}
-                                        </p>
-                                    </div>
-                                    <div className="flex gap-1 flex-shrink-0">
-                                        {!['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status) && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
-                                                onClick={() => {
-                                                    if (window.confirm('Are you sure you want to remove this task?')) {
-                                                        doAction(() => removeTask(id!, task._id));
-                                                    }
-                                                }}>
-                                                <Trash2 size={14} />
-                                            </button>
-                                        )}
-                                    </div>
+                        {showPartForm && (
+                            <div className="glass-card p-4 space-y-3">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Select Part from Inventory *</label>
+                                    <select
+                                        className="input-field"
+                                        value={selectedInventoryPart?._id || ''}
+                                        onChange={(e) => {
+                                            const part = inventoryParts.find(p => p._id === e.target.value);
+                                            setSelectedInventoryPart(part || null);
+                                            if (part) {
+                                                setPartForm({
+                                                    ...partForm,
+                                                    partName: part.partName,
+                                                    partNumber: part.partNumber,
+                                                    unitCost: part.unitCost,
+                                                    inventoryPartId: part._id,
+                                                    source: 'IN_STOCK',
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <option value="">{partsLoading ? 'Loading parts...' : '— Choose a part —'}</option>
+                                        {inventoryParts.map(p => {
+                                            const available = p.quantityOnHand - p.quantityReserved;
+                                            return (
+                                                <option key={p._id} value={p._id}>
+                                                    {p.partName} ({p.partNumber}) — {available > 0 ? `${available} available` : 'OUT OF STOCK'}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ══════════════════ PARTS TAB ══════════════════ */}
-            {activeTab === 'parts' && (
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.parts')} ({wo.parts.length})</h3>
-                        <button className="btn-primary text-xs !py-2" onClick={() => setShowPartForm(!showPartForm)}>
-                            <PlusCircle size={14} /> {t('common.addItem')}
-                        </button>
+                                {selectedInventoryPart && (() => {
+                                    const available = selectedInventoryPart.quantityOnHand - selectedInventoryPart.quantityReserved;
+                                    const isOutOfStock = available <= 0;
+                                    const isInsufficient = !isOutOfStock && available < partForm.quantity;
+                                    return (
+                                        <div className={`flex items-center gap-2 p-3 rounded-xl text-xs font-semibold ${isOutOfStock ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                            : isInsufficient ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                                : 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                            }`}>
+                                            {isOutOfStock ? <AlertTriangle size={14} /> : isInsufficient ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+                                            {isOutOfStock
+                                                ? 'Out of stock — part will be added as a REQUEST for manager approval.'
+                                                : isInsufficient
+                                                    ? `Only ${available} available — need ${partForm.quantity}. Will be added as a REQUEST.`
+                                                    : `${available} in stock — will be reserved.`
+                                            }
+                                        </div>
+                                    );
+                                })()}
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity</label>
+                                    <input type="number" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })} className="input-field max-w-[200px]" min="1" />
+                                </div>
+                                <div className="flex gap-2">
+                                    <button className="btn-secondary text-xs flex-1" onClick={() => { setShowPartForm(false); setSelectedInventoryPart(null); }}>{t('common.cancel')}</button>
+                                    <button className="btn-primary text-xs flex-1" disabled={!selectedInventoryPart || actionLoading}
+                                        onClick={() => doAction(async () => {
+                                            await addPart(id!, partForm);
+                                            setShowPartForm(false);
+                                            setSelectedInventoryPart(null);
+                                            setPartForm({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
+                                        })}>
+                                        {actionLoading ? <Loader2 size={14} className="animate-spin" /> : t('common.add')}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {wo.parts.length === 0 ? (
+                            <div className="glass-card p-8 text-center">
+                                <Package size={36} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
+                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('workOrders.list.empty')}</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {wo.parts.map((part) => (
+                                    <div key={part._id} className="glass-card p-4 flex items-start gap-3">
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
+                                            : part.status === 'REQUESTED' ? 'bg-orange-500/10 text-orange-500'
+                                                : 'bg-blue-500/10 text-blue-500'
+                                            }`}>
+                                            {part.status === 'INSTALLED' ? <CheckCircle2 size={20} />
+                                                : part.status === 'REQUESTED' ? <AlertTriangle size={20} />
+                                                    : <Package size={20} />}
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
+                                                <span className={`badge text-[10px] ${part.status === 'INSTALLED' ? 'badge-green'
+                                                    : part.status === 'REQUESTED' ? 'badge-orange'
+                                                        : part.status === 'RESERVED' ? 'badge-blue'
+                                                            : part.status === 'RECEIVED' ? 'badge-blue'
+                                                                : 'badge-gray'
+                                                    }`}>
+                                                    {part.status === 'REQUESTED' ? '⏳ AWAITING APPROVAL' : part.status === 'RESERVED' ? 'ASSIGNED' : part.status}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                                                Qty: {part.quantity} • ${part.unitCost.toFixed(2)} each = ${part.totalCost.toFixed(2)}
+                                            </p>
+                                        </div>
+                                        <div className="flex gap-1 flex-shrink-0">
+                                            {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                                <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
+                                                    onClick={() => {
+                                                        const confirmMsg = part.status === 'INSTALLED'
+                                                            ? 'This part is currently INSTALLED. Removing it will return the stock to inventory. Are you sure you want to delete it?'
+                                                            : 'Are you sure you want to remove this part?';
+                                                        if (window.confirm(confirmMsg)) {
+                                                            doAction(() => removePart(id!, part._id));
+                                                        }
+                                                    }}>
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                    {showPartForm && (
-                        <div className="glass-card p-4 space-y-3">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Select Part from Inventory *</label>
-                                <select
-                                    className="input-field"
-                                    value={selectedInventoryPart?._id || ''}
-                                    onChange={(e) => {
-                                        const part = inventoryParts.find(p => p._id === e.target.value);
-                                        setSelectedInventoryPart(part || null);
-                                        if (part) {
-                                            setPartForm({
-                                                ...partForm,
-                                                partName: part.partName,
-                                                partNumber: part.partNumber,
-                                                unitCost: part.unitCost,
-                                                inventoryPartId: part._id,
-                                                source: 'IN_STOCK',
-                                            });
-                                        }
-                                    }}
-                                >
-                                    <option value="">{partsLoading ? 'Loading parts...' : '— Choose a part —'}</option>
-                                    {inventoryParts.map(p => {
-                                        const available = p.quantityOnHand - p.quantityReserved;
-                                        return (
-                                            <option key={p._id} value={p._id}>
-                                                {p.partName} ({p.partNumber}) — {available > 0 ? `${available} available` : 'OUT OF STOCK'}
-                                            </option>
-                                        );
-                                    })}
-                                </select>
-                            </div>
-                            {selectedInventoryPart && (() => {
-                                const available = selectedInventoryPart.quantityOnHand - selectedInventoryPart.quantityReserved;
-                                const isOutOfStock = available <= 0;
-                                const isInsufficient = !isOutOfStock && available < partForm.quantity;
-                                return (
-                                    <div className={`flex items-center gap-2 p-3 rounded-xl text-xs font-semibold ${isOutOfStock ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                        : isInsufficient ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                                            : 'bg-green-500/10 text-green-400 border border-green-500/20'
-                                        }`}>
-                                        {isOutOfStock ? <AlertTriangle size={14} /> : isInsufficient ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-                                        {isOutOfStock
-                                            ? 'Out of stock — part will be added as a REQUEST for manager approval.'
-                                            : isInsufficient
-                                                ? `Only ${available} available — need ${partForm.quantity}. Will be added as a REQUEST.`
-                                                : `${available} in stock — will be reserved.`
-                                        }
-                                    </div>
-                                );
-                            })()}
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity</label>
-                                <input type="number" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })} className="input-field max-w-[200px]" min="1" />
-                            </div>
-                            <div className="flex gap-2">
-                                <button className="btn-secondary text-xs flex-1" onClick={() => { setShowPartForm(false); setSelectedInventoryPart(null); }}>{t('common.cancel')}</button>
-                                <button className="btn-primary text-xs flex-1" disabled={!selectedInventoryPart || actionLoading}
-                                    onClick={() => doAction(async () => {
-                                        await addPart(id!, partForm);
-                                        setShowPartForm(false);
-                                        setSelectedInventoryPart(null);
-                                        setPartForm({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
-                                    })}>
-                                    {actionLoading ? <Loader2 size={14} className="animate-spin" /> : t('common.add')}
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                    {wo.parts.length === 0 ? (
-                        <div className="glass-card p-8 text-center">
-                            <Package size={36} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
-                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('workOrders.list.empty')}</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {wo.parts.map((part) => (
-                                <div key={part._id} className="glass-card p-4 flex items-start gap-3">
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
-                                        : part.status === 'REQUESTED' ? 'bg-orange-500/10 text-orange-500'
-                                            : 'bg-blue-500/10 text-blue-500'
-                                        }`}>
-                                        {part.status === 'INSTALLED' ? <CheckCircle2 size={20} />
-                                            : part.status === 'REQUESTED' ? <AlertTriangle size={20} />
-                                                : <Package size={20} />}
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
-                                            <span className={`badge text-[10px] ${part.status === 'INSTALLED' ? 'badge-green'
-                                                : part.status === 'REQUESTED' ? 'badge-orange'
-                                                    : part.status === 'RESERVED' ? 'badge-blue'
-                                                        : part.status === 'RECEIVED' ? 'badge-blue'
-                                                            : 'badge-gray'
-                                                }`}>
-                                                {part.status === 'REQUESTED' ? '⏳ AWAITING APPROVAL' : part.status}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                                            Qty: {part.quantity} • ${part.unitCost.toFixed(2)} each = ${part.totalCost.toFixed(2)}
-                                        </p>
-                                    </div>
-                                    <div className="flex gap-1 flex-shrink-0">
-                                        {!['INVOICED', 'CLOSED', 'CANCELLED', 'VEHICLE_RELEASED'].includes(wo.status) && (
-                                            <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
-                                                onClick={() => {
-                                                    const confirmMsg = part.status === 'INSTALLED'
-                                                        ? 'This part is currently INSTALLED. Removing it will return the stock to inventory. Are you sure you want to delete it?'
-                                                        : 'Are you sure you want to remove this part?';
-                                                    if (window.confirm(confirmMsg)) {
-                                                        doAction(() => removePart(id!, part._id));
-                                                    }
-                                                }}>
-                                                <Trash2 size={14} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
                 </div>
             )}
 
@@ -1500,18 +1197,18 @@ const WorkOrderDetail = () => {
 
             {/* ══════════════════ QC & PHOTOS TAB ══════════════════ */}
             {activeTab === 'qc' && (() => {
-                const isReleasedOrLater = ['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status);
-                const totalTasksCount = wo.tasks.length;
-                const completedTasksCount = wo.tasks.filter(t => t.status === 'COMPLETED').length;
-                
-                const totalPartsCount = wo.parts.length;
-                const installedPartsCount = wo.parts.filter(p => p.status === 'INSTALLED').length;
+                const doableTasks = wo.tasks.filter(t => t.isDoable);
+                const totalTasksCount = doableTasks.length;
+                const completedTasksCount = doableTasks.filter(t => t.status === 'COMPLETED').length;
 
-                // Photos needed for completed tasks and installed parts
-                const completedTaskIds = wo.tasks.filter(t => t.status === 'COMPLETED').map(t => `TASK_${t._id}`);
-                const installedPartIds = wo.parts.filter(p => p.status === 'INSTALLED').map(p => `PART_${p._id}`);
-                const requiredPhotoCaptions = [...completedTaskIds, ...installedPartIds];
-                
+                const activeParts = wo.parts.filter(p => !p.taskTemplateId || doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString()));
+                const totalPartsCount = activeParts.length;
+                const installedPartsCount = activeParts.filter(p => p.status === 'INSTALLED').length;
+
+                // Photos needed for completed tasks ONLY (parts do not require photos)
+                const completedTaskIds = doableTasks.filter(t => t.status === 'COMPLETED').map(t => `TASK_${t._id}`);
+                const requiredPhotoCaptions = completedTaskIds;
+
                 const requiredPhotosCount = requiredPhotoCaptions.length;
                 const uploadedPhotosCount = wo.photos.filter(p => p.caption && requiredPhotoCaptions.includes(p.caption)).length;
 
@@ -1521,9 +1218,9 @@ const WorkOrderDetail = () => {
                 const hasAllPhotos = uploadedPhotosCount === requiredPhotosCount;
 
                 return (
-                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         {/* QC Progress Overview Widget */}
-                        <div className="glass-card p-4 bg-gradient-to-r from-[var(--bg-card)] via-[var(--bg-card)]/90 to-[var(--brand-lime-alpha)]/5 border border-[var(--border-main)]/50 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md relative overflow-hidden">
+                        <div className="glass-card p-2.5 px-4 bg-gradient-to-r from-[var(--bg-card)] via-[var(--bg-card)]/90 to-[var(--brand-lime-alpha)]/5 border border-[var(--border-main)]/50 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md relative overflow-hidden">
                             {/* Decorative background glows */}
                             <div className="absolute -right-20 -top-20 w-32 h-32 rounded-full bg-[var(--brand-lime)]/5 blur-2xl pointer-events-none" />
 
@@ -1535,7 +1232,7 @@ const WorkOrderDetail = () => {
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <h3 className="text-sm font-bold text-[var(--text-main)]">Quality Control</h3>
                                         <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5 inline-block">
-                                            <div 
+                                            <div
                                                 className="h-full bg-gradient-to-r from-[var(--brand-lime)] to-emerald-400 transition-all duration-500 ease-out"
                                                 style={{ width: `${overallPercent}%` }}
                                             />
@@ -1569,102 +1266,159 @@ const WorkOrderDetail = () => {
                             </div>
                         </div>
 
-                        {/* ══════════════════ TASK VERIFICATION CHECKLIST ══════════════════ */}
-                        <div className="space-y-6">
-                            <div className="space-y-1">
-                                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Task Verification Checklist</h3>
-                                <p className="text-xs text-[var(--text-dim)]">Mark tasks as Completed and upload required photo documentation.</p>
-                            </div>
+                        {/* ══════════════════ COMBINED VERIFICATION CHECKLIST ══════════════════ */}
+                        <div className="space-y-3">
 
-                            {wo.tasks.length === 0 ? (
+                            {doableTasks.length === 0 && activeParts.length === 0 ? (
                                 <div className="glass-card p-6 text-center text-xs text-[var(--text-muted)]">
-                                    No tasks assigned to this work order.
+                                    No active tasks or parts assigned to this work order.
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {wo.tasks.map((task) => {
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    {doableTasks.map((task) => {
                                         const photo = wo.photos.find(p => p.caption === `TASK_${task._id}`);
                                         const isCompleted = task.status === 'COMPLETED';
+                                        const taskParts = activeParts.filter(p => p.taskTemplateId && task.taskTemplateId && p.taskTemplateId.toString() === task.taskTemplateId.toString());
 
                                         return (
-                                            <div 
-                                                key={task._id} 
-                                                className={`glass-card p-4 flex items-center justify-between gap-4 border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg ${
-                                                    isCompleted 
-                                                        ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/10 via-[var(--brand-lime-alpha)]/2 to-transparent' 
+                                            <div
+                                                key={task._id}
+                                                className={`glass-card p-0 border transition-all duration-300 flex overflow-hidden ${isCompleted
+                                                        ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/5 via-[var(--brand-lime-alpha)]/1 to-transparent'
                                                         : 'border-[var(--border-main)]/50'
-                                                }`}
+                                                    }`}
                                             >
-                                                <div className="flex items-start gap-3 flex-1 min-w-0">
-                                                    <button
-                                                        type="button"
-                                                        disabled={actionLoading}
-                                                        onClick={() => doAction(() => updateTask(id!, task._id, { 
-                                                            status: isCompleted ? 'PENDING' : 'COMPLETED' 
-                                                        }))}
-                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${
-                                                            isCompleted 
-                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20' 
-                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
-                                                        }`}
-                                                        title={isCompleted ? "Mark Pending" : "Mark Completed"}
-                                                    >
-                                                        <CheckCircle2 size={12} className="stroke-[3]" />
-                                                    </button>
-                                                    <div className="min-w-0 select-none">
-                                                        <span 
-                                                            onClick={() => doAction(() => updateTask(id!, task._id, { 
-                                                                status: isCompleted ? 'PENDING' : 'COMPLETED' 
+                                                {/* Left Side: Content & Parts */}
+                                                <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
+                                                    <div className="flex items-start gap-2.5">
+                                                        <button
+                                                            type="button"
+                                                            disabled={actionLoading}
+                                                            onClick={() => doAction(() => updateTask(id!, task._id, {
+                                                                status: isCompleted ? 'PENDING' : 'COMPLETED'
                                                             }))}
-                                                            className={`text-xs font-semibold text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors break-words ${
-                                                                isCompleted ? 'line-through text-[var(--text-dim)] font-medium' : ''
-                                                            }`}
+                                                            className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${isCompleted
+                                                                    ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20'
+                                                                    : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
+                                                                }`}
+                                                            title={isCompleted ? "Mark Pending" : "Mark Completed"}
                                                         >
-                                                            {task.description}
-                                                        </span>
-                                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                            <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded font-mono">
-                                                                {task.category || 'General'}
+                                                            <CheckCircle2 size={12} className="stroke-[3]" />
+                                                        </button>
+                                                        <div className="min-w-0 select-none">
+                                                            <span
+                                                                onClick={() => doAction(() => updateTask(id!, task._id, {
+                                                                    status: isCompleted ? 'PENDING' : 'COMPLETED'
+                                                                }))}
+                                                                className={`text-xs font-semibold text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors break-words ${isCompleted ? 'line-through text-[var(--text-dim)] font-medium' : ''
+                                                                    }`}
+                                                            >
+                                                                {task.description}
                                                             </span>
-                                                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                                                                isCompleted ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'
-                                                            }`}>
-                                                                {task.status}
-                                                            </span>
+                                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                                <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded font-mono">
+                                                                    {task.category || 'General'}
+                                                                </span>
+                                                                <span className={`text-[9px] font-bold uppercase tracking-wider ${isCompleted ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'
+                                                                    }`}>
+                                                                    {task.status}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
+
+                                                    {/* Nested corresponding parts for this task */}
+                                                    {taskParts.length > 0 && (
+                                                        <div className="mt-2.5 pl-3 border-l border-[var(--border-main)]/30 space-y-1.5">
+                                                            <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-dim)]">Required Parts</p>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                {taskParts.map((part) => {
+                                                                    const isInstalled = part.status === 'INSTALLED';
+
+                                                                    return (
+                                                                        <div
+                                                                            key={part._id}
+                                                                            className={`flex items-center justify-between gap-3 p-1.5 px-2 rounded-lg border transition-all duration-300 ${
+                                                                                isInstalled 
+                                                                                    ? 'border-[var(--brand-lime)]/20 bg-[var(--brand-lime-alpha)]/2' 
+                                                                                    : 'border-[var(--border-main)]/20 bg-white/[0.01]'
+                                                                            }`}
+                                                                        >
+                                                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={actionLoading}
+                                                                                    onClick={() => doAction(() => updatePart(id!, part._id, {
+                                                                                        status: isInstalled ? 'REQUESTED' : 'INSTALLED'
+                                                                                    }))}
+                                                                                    className={`w-4 h-4 rounded flex items-center justify-center border transition-all duration-300 shrink-0 ${isInstalled
+                                                                                            ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black'
+                                                                                            : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)]'
+                                                                                        }`}
+                                                                                    title={isInstalled ? "Mark Uninstalled" : "Mark Installed"}
+                                                                                >
+                                                                                    <CheckCircle2 size={8} className="stroke-[3]" />
+                                                                                </button>
+                                                                                <div className="min-w-0 select-none">
+                                                                                    <span
+                                                                                        onClick={() => doAction(() => updatePart(id!, part._id, {
+                                                                                            status: isInstalled ? 'REQUESTED' : 'INSTALLED'
+                                                                                        }))}
+                                                                                        className={`text-xs font-medium text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors truncate block ${isInstalled ? 'line-through text-[var(--text-dim)]' : ''}`}
+                                                                                        title={part.partName}
+                                                                                    >
+                                                                                        {part.partName}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                                                                                <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded">
+                                                                                    Qty: {part.quantity}
+                                                                                </span>
+                                                                                <span className={`text-[9px] font-bold uppercase ${isInstalled ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
+                                                                                    {part.status === 'REQUESTED' ? 'REQ' : part.status === 'RESERVED' ? 'ASSIGNED' : part.status}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
 
-                                                <div className="flex-shrink-0">
+                                                {/* Right Side: Image / Upload Panel stretching full height */}
+                                                <div className="w-28 flex-shrink-0 border-l border-[var(--border-main)]/20 flex flex-col justify-stretch items-stretch bg-[var(--bg-card)]/30">
                                                     {isCompleted ? (
                                                         photo ? (
-                                                            <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[var(--border-main)] group/photo shadow-sm hover:border-[var(--brand-lime)]/50 transition-all duration-300">
-                                                                <img src={photo.url} alt="Task verification" className="w-full h-full object-cover transition-transform duration-300 group-hover/photo:scale-110" />
-                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                                            <div className="relative w-full h-full group/photo overflow-hidden">
+                                                                <img src={photo.url} alt="Task verification" className="w-full h-full object-cover transition-transform duration-300 group-hover/photo:scale-105" />
+                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
                                                                     {isReleasedOrLater ? (
                                                                         <>
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                                className="w-6 h-6 rounded bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
+                                                                                className="w-7 h-7 rounded-lg bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 hover:scale-110 active:scale-95 cursor-pointer shadow-md shadow-blue-500/25"
                                                                                 title="Change Photo (Camera)"
                                                                                 disabled={actionLoading}
                                                                             >
-                                                                                <Camera size={10} />
+                                                                                <Camera size={11} className="stroke-[2.5]" />
                                                                             </button>
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                                className="w-6 h-6 rounded bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
+                                                                                className="w-7 h-7 rounded-lg bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 hover:scale-110 active:scale-95 cursor-pointer shadow-md shadow-orange-500/25"
                                                                                 title="Change Photo (Upload)"
                                                                                 disabled={actionLoading}
                                                                             >
-                                                                                <Upload size={10} />
+                                                                                <Upload size={11} className="stroke-[2.5]" />
                                                                             </button>
                                                                         </>
                                                                     ) : (
                                                                         <button
-                                                                            className="w-6 h-6 rounded bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100"
+                                                                            type="button"
+                                                                            className="w-7 h-7 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 hover:scale-110 active:scale-95 cursor-pointer"
                                                                             title="Delete Photo"
                                                                             disabled={actionLoading}
                                                                             onClick={(e) => {
@@ -1674,193 +1428,114 @@ const WorkOrderDetail = () => {
                                                                                 }
                                                                             }}
                                                                         >
-                                                                            <Trash2 size={10} />
+                                                                            <Trash2 size={11} className="stroke-[2.5]" />
                                                                         </button>
                                                                     )}
                                                                 </div>
                                                             </div>
                                                         ) : (
-                                                            <div className="flex flex-col items-center gap-1.5 p-1 rounded-xl border border-dashed border-orange-500/40 bg-orange-500/5 px-3 py-2 shadow-inner">
+                                                            <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2 bg-gradient-to-b from-orange-500/5 to-amber-500/5 hover:from-orange-500/10 hover:to-amber-500/10 transition-all duration-300 group shadow-[inset_0_1px_2px_rgba(249,115,22,0.05)] border-l border-dashed border-orange-500/20">
+                                                                <div className="flex flex-col items-center gap-0.5 select-none text-center">
+                                                                    <span className="text-[8px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shrink-0" />
+                                                                        QC Req
+                                                                    </span>
+                                                                    <span className="text-[7px] font-medium text-[var(--text-dim)]">Photo</span>
+                                                                </div>
                                                                 <div className="flex gap-1.5">
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                        className="btn-secondary !p-2 rounded-xl text-[10px] flex items-center justify-center hover:bg-white/10 hover:border-orange-500/50 hover:text-orange-400 transition-colors cursor-pointer"
+                                                                        className="w-7 h-7 rounded-lg border border-orange-500/30 bg-orange-500/10 text-orange-400 hover:bg-orange-500 hover:text-white hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center cursor-pointer shadow-sm"
                                                                         title="Take Photo"
                                                                         disabled={actionLoading}
                                                                     >
-                                                                        <Camera size={14} />
+                                                                        <Camera size={11} className="stroke-[2.5]" />
                                                                     </button>
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                        className="btn-primary !p-2 rounded-xl text-[10px] flex items-center justify-center bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/20 cursor-pointer"
+                                                                        className="w-7 h-7 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-400 hover:to-amber-400 hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center cursor-pointer shadow-md shadow-orange-500/20"
                                                                         title="Upload Photo"
                                                                         disabled={actionLoading}
                                                                     >
-                                                                        <Upload size={14} />
+                                                                        <Upload size={11} className="stroke-[2.5]" />
                                                                     </button>
                                                                 </div>
-                                                                <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-0.5 animate-pulse">
-                                                                    <AlertTriangle size={8} /> Photo Req.
-                                                                </span>
                                                             </div>
                                                         )
                                                     ) : (
-                                                        <span className="text-[10px] text-[var(--text-dim)] italic">Complete task to verify</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* ══════════════════ PARTS INSTALLATION CHECKLIST ══════════════════ */}
-                        <div className="space-y-6 pt-6 border-t border-[var(--border-main)]/30">
-                            <div className="space-y-1">
-                                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Parts Installation Checklist</h3>
-                                <p className="text-xs text-[var(--text-dim)]">Mark parts as Installed and upload required photo documentation.</p>
-                            </div>
-
-                            {wo.parts.length === 0 ? (
-                                <div className="glass-card p-6 text-center text-xs text-[var(--text-muted)]">
-                                    No parts listed for this work order.
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {wo.parts.map((part) => {
-                                        const photo = wo.photos.find(p => p.caption === `PART_${part._id}`);
-                                        const isInstalled = part.status === 'INSTALLED';
-
-                                        return (
-                                            <div 
-                                                key={part._id} 
-                                                className={`glass-card p-4 flex items-center justify-between gap-4 border transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg ${
-                                                    isInstalled 
-                                                        ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/10 via-[var(--brand-lime-alpha)]/2 to-transparent' 
-                                                        : 'border-[var(--border-main)]/50'
-                                                }`}
-                                            >
-                                                <div className="flex items-start gap-3 flex-1 min-w-0">
-                                                    <button
-                                                        type="button"
-                                                        disabled={actionLoading}
-                                                        onClick={() => doAction(() => updatePart(id!, part._id, { 
-                                                            status: isInstalled ? 'REQUESTED' : 'INSTALLED' 
-                                                        }))}
-                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${
-                                                            isInstalled 
-                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20' 
-                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
-                                                        }`}
-                                                        title={isInstalled ? "Mark Uninstalled" : "Mark Installed"}
-                                                    >
-                                                        <CheckCircle2 size={12} className="stroke-[3]" />
-                                                    </button>
-                                                    <div className="min-w-0 select-none">
-                                                        <span 
-                                                            onClick={() => doAction(() => updatePart(id!, part._id, { 
-                                                                status: isInstalled ? 'REQUESTED' : 'INSTALLED' 
-                                                            }))}
-                                                            className={`text-xs font-semibold text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors break-words ${
-                                                                isInstalled ? 'line-through text-[var(--text-dim)] font-medium' : ''
-                                                            }`}
-                                                        >
-                                                            {part.partName}
-                                                        </span>
-                                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                            <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded">
-                                                                Qty: {part.quantity}
-                                                            </span>
-                                                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                                                                isInstalled ? 'text-[var(--brand-lime)]' : 'text-orange-400'
-                                                            }`}>
-                                                                {part.status === 'REQUESTED' ? 'AWAITING APPROVAL' : part.status}
-                                                            </span>
+                                                        <div className="w-full h-full flex items-center justify-center p-2 text-center text-[9px] text-[var(--text-dim)] italic bg-black/5 select-none leading-tight">
+                                                            Pending Task
                                                         </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex-shrink-0">
-                                                    {isInstalled ? (
-                                                        photo ? (
-                                                            <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[var(--border-main)] group/photo shadow-sm hover:border-[var(--brand-lime)]/50 transition-all duration-300">
-                                                                <img src={photo.url} alt="Part verification" className="w-full h-full object-cover transition-transform duration-300 group-hover/photo:scale-110" />
-                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center gap-1">
-                                                                    {isReleasedOrLater ? (
-                                                                        <>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `PART_${part._id}` })}
-                                                                                className="w-6 h-6 rounded bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
-                                                                                title="Change Photo (Camera)"
-                                                                                disabled={actionLoading}
-                                                                            >
-                                                                                <Camera size={10} />
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `PART_${part._id}` })}
-                                                                                className="w-6 h-6 rounded bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 cursor-pointer"
-                                                                                title="Change Photo (Upload)"
-                                                                                disabled={actionLoading}
-                                                                            >
-                                                                                <Upload size={10} />
-                                                                            </button>
-                                                                        </>
-                                                                    ) : (
-                                                                        <button
-                                                                            className="w-6 h-6 rounded bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100"
-                                                                            title="Delete Photo"
-                                                                            disabled={actionLoading}
-                                                                            onClick={(e) => {
-                                                                                e.preventDefault();
-                                                                                if (window.confirm("Permanently delete this verification photo?")) {
-                                                                                    doAction(() => removePhoto(id!, photo._id));
-                                                                                }
-                                                                            }}
-                                                                        >
-                                                                            <Trash2 size={10} />
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex flex-col items-center gap-1.5 p-1 rounded-xl border border-dashed border-orange-500/40 bg-orange-500/5 px-3 py-2 shadow-inner">
-                                                                <div className="flex gap-1.5">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `PART_${part._id}` })}
-                                                                        className="btn-secondary !p-2 rounded-xl text-[10px] flex items-center justify-center hover:bg-white/10 hover:border-orange-500/50 hover:text-orange-400 transition-colors cursor-pointer"
-                                                                        title="Take Photo"
-                                                                        disabled={actionLoading}
-                                                                    >
-                                                                        <Camera size={14} />
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `PART_${part._id}` })}
-                                                                        className="btn-primary !p-2 rounded-xl text-[10px] flex items-center justify-center bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/20 cursor-pointer"
-                                                                        title="Upload Photo"
-                                                                        disabled={actionLoading}
-                                                                    >
-                                                                        <Upload size={14} />
-                                                                    </button>
-                                                                </div>
-                                                                <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-0.5 animate-pulse">
-                                                                    <AlertTriangle size={8} /> Photo Req.
-                                                                </span>
-                                                            </div>
-                                                        )
-                                                    ) : (
-                                                        <span className="text-[10px] text-[var(--text-dim)] italic">Install part to verify</span>
                                                     )}
                                                 </div>
                                             </div>
                                         );
                                     })}
+
+                                    {/* General Parts Section (for parts not linked to any task) */}
+                                    {activeParts.filter(p => !p.taskTemplateId || !doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString())).length > 0 && (
+                                        <div className="space-y-3 pt-4 border-t border-[var(--border-main)]/30">
+                                            <div className="space-y-0.5">
+                                                <h3 className="text-xs font-semibold text-[var(--text-main)]">General Parts & Materials</h3>
+                                                <p className="text-[10px] text-[var(--text-dim)]">Mark general parts as Installed.</p>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {activeParts
+                                                    .filter(p => !p.taskTemplateId || !doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString()))
+                                                    .map((part) => {
+                                                        const isInstalled = part.status === 'INSTALLED';
+
+                                                        return (
+                                                            <div
+                                                                key={part._id}
+                                                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border transition-all duration-300 ${isInstalled
+                                                                        ? 'border-[var(--brand-lime)]/20 bg-[var(--brand-lime-alpha)]/2'
+                                                                        : 'border-[var(--border-main)]/20 bg-white/[0.01]'
+                                                                    }`}
+                                                            >
+                                                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={actionLoading}
+                                                                        onClick={() => doAction(() => updatePart(id!, part._id, {
+                                                                            status: isInstalled ? 'REQUESTED' : 'INSTALLED'
+                                                                        }))}
+                                                                        className={`w-4 h-4 rounded flex items-center justify-center border transition-all duration-300 shrink-0 ${isInstalled
+                                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black'
+                                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)]'
+                                                                            }`}
+                                                                        title={isInstalled ? "Mark Uninstalled" : "Mark Installed"}
+                                                                    >
+                                                                        <CheckCircle2 size={8} className="stroke-[3]" />
+                                                                    </button>
+                                                                    <div className="min-w-0 select-none">
+                                                                        <span
+                                                                            onClick={() => doAction(() => updatePart(id!, part._id, {
+                                                                                status: isInstalled ? 'REQUESTED' : 'INSTALLED'
+                                                                            }))}
+                                                                            className={`text-xs font-medium text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors truncate block ${isInstalled ? 'line-through text-[var(--text-dim)]' : ''}`}
+                                                                            title={part.partName}
+                                                                        >
+                                                                            {part.partName}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                                                                    <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded">
+                                                                        Qty: {part.quantity}
+                                                                    </span>
+                                                                    <span className={`text-[9px] font-bold uppercase ${isInstalled ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
+                                                                        {part.status === 'REQUESTED' ? 'REQ' : part.status === 'RESERVED' ? 'ASSIGNED' : part.status}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -2118,17 +1793,20 @@ const WorkOrderDetail = () => {
                                         })()}
 
                                         {(() => {
-                                            const preBillValue = (wo.actualLabourHours || 0) * hourlyRate + (wo.actualPartsCost || 0);
+                                            const installedParts = (wo.parts || []).filter((p: any) => p.status === 'INSTALLED');
+                                            const computedPartsCost = installedParts.reduce((sum: number, p: any) => sum + (p.totalCost || (p.unitCost || 0) * (p.quantity || 1)), 0);
+                                            const labourCost = (wo.actualLabourHours || 0) * hourlyRate;
+                                            const preBillValue = labourCost + computedPartsCost;
                                             return (
                                                 <>
                                                     <div className="p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] space-y-2">
                                                         <div className="flex justify-between text-xs text-[var(--text-muted)]">
                                                             <span>Labour ({wo.actualLabourHours || 0} hrs @ {hourlyRate} AED/hr)</span>
-                                                            <span className="font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * hourlyRate} AED</span>
+                                                            <span className="font-mono text-[var(--text-main)]">{labourCost} AED</span>
                                                         </div>
                                                         <div className="flex justify-between text-xs text-[var(--text-muted)]">
-                                                            <span>Parts Cost</span>
-                                                            <span className="font-mono text-[var(--text-main)]">{wo.actualPartsCost || 0} AED</span>
+                                                            <span>Parts Cost ({installedParts.length} installed)</span>
+                                                            <span className="font-mono text-[var(--text-main)]">{computedPartsCost} AED</span>
                                                         </div>
                                                         <div className="h-px bg-[var(--border-main)] my-2" />
                                                         <div className="flex justify-between text-sm font-bold">
@@ -2139,7 +1817,7 @@ const WorkOrderDetail = () => {
 
                                                     <button
                                                         className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                                                        disabled={actionLoading || preBillValue <= 0 || !['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
+                                                        disabled={actionLoading || preBillValue <= 0 || !['BILLING', 'QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
                                                         onClick={() => {
                                                             doAction(() => generateBill(id!, {
                                                                 hourlyRate: Number(hourlyRate),
@@ -2263,38 +1941,7 @@ const WorkOrderDetail = () => {
                             </div>
                         </div>
 
-                        <div className="w-full lg:w-80 space-y-6">
-                            <div className="glass-card p-6 border-[var(--border-main)] rounded-2xl">
-                                <h3 className="text-[10px] font-bold text-[var(--text-dim)] uppercase tracking-widest mb-4">Live Cost Tracker</h3>
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500">
-                                                <Package size={14} />
-                                            </div>
-                                            <span className="text-xs text-[var(--text-muted)]">Parts</span>
-                                        </div>
-                                        <span className="text-xs font-mono text-[var(--text-main)]">{wo.actualPartsCost || 0} AED</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center text-yellow-500">
-                                                <Clock size={14} />
-                                            </div>
-                                            <span className="text-xs text-[var(--text-muted)]">Labour</span>
-                                        </div>
-                                        <span className="text-xs font-mono text-[var(--text-main)]">{(wo.actualLabourHours || 0) * 50} $</span>
-                                    </div>
-                                    <div className="h-px bg-[var(--border-main)] my-2"></div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs font-bold text-[var(--text-main)]">Subtotal</span>
-                                        <span className="text-sm font-bold text-[var(--brand-lime)]">
-                                            {(wo.actualPartsCost || 0) + ((wo.actualLabourHours || 0) * 50)} $
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+
                     </div>
                 </div>
             )}
@@ -2336,6 +1983,222 @@ const WorkOrderDetail = () => {
                     </div>
                 </div>
             )}
+            {/* ── GPS MODAL ── */}
+            {showGpsModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-[var(--bg-card)] border border-[var(--border-main)]/50 rounded-2xl w-full max-w-4xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto space-y-6 flex flex-col relative animate-scaleIn">
+                        <div className="flex items-center justify-between border-b border-[var(--border-main)]/20 pb-3">
+                            <h3 className="text-base font-bold flex items-center gap-2 text-white">
+                                <MapPin size={18} className="text-lime" style={{ color: 'var(--brand-lime)' }} />
+                                Real-time GPS Tracking
+                                {gpsData?.matchType && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] uppercase tracking-wider font-bold">
+                                        {gpsData.matchType}
+                                    </span>
+                                )}
+                            </h3>
+                            <button 
+                                type="button"
+                                className="btn-icon !min-w-[32px] !min-h-[32px] hover:bg-white/10 rounded-full"
+                                onClick={() => setShowGpsModal(false)}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {gpsLoading && !gpsData ? (
+                            <div className="flex flex-col items-center justify-center py-20 gap-3">
+                                <Loader2 className="animate-spin text-lime" size={32} style={{ color: 'var(--brand-lime)' }} />
+                                <span className="text-sm text-muted-foreground">Fetching live GPS coordinates...</span>
+                            </div>
+                        ) : !gpsData ? (
+                            <div className="text-center py-12 border border-dashed rounded-xl border-white/10 bg-white/5">
+                                <p className="text-sm text-muted-foreground">
+                                    {!resolvedImei ? 'No direct GPS IMEI configured, and auto-match could not find a device in the GPS registry.' : `Unable to fetch current GPS coordinates or device offline (IMEI: ${resolvedImei}).`}
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">IMEI Number</span>
+                                        <span className="text-xs font-semibold text-white font-mono">{gpsData.imei || resolvedImei}</span>
+                                    </div>
+
+                                    <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Coordinates</span>
+                                        <span className="text-xs font-semibold text-white font-mono">{gpsData.lat.toFixed(5)}, {gpsData.lng.toFixed(5)}</span>
+                                    </div>
+
+                                    <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Engine Status (ACC)</span>
+                                        <span className={`text-xs font-semibold uppercase tracking-wider ${gpsData.accStatus === 1 ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
+                                            ● {gpsData.accStatus === 1 ? 'ON' : 'OFF'}
+                                        </span>
+                                    </div>
+
+                                    <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Speed / Battery</span>
+                                        <span className="text-xs font-semibold text-white">{gpsData.speed} KM/H • 🔋 {gpsData.electQuantity}%</span>
+                                    </div>
+
+                                    <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                        <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Last Sync (GPS Time)</span>
+                                        <span className="text-xs font-semibold text-white font-mono">{new Date(gpsData.gpsTime || gpsData.hbTime).toLocaleString()}</span>
+                                    </div>
+
+                                    {gpsMileage && (
+                                        <>
+                                            <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Total Odometer Mileage</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {(gpsMileage.totalMileage / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} KM
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Today's Trip Distance</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {(gpsMileage.distance / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} KM
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Today's Average Speed</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {gpsMileage.avgSpeed} KM/H
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Today's Drive Duration</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {gpsMileage.elapsed > 0 ? `${Math.floor(gpsMileage.elapsed / 60)}m ${gpsMileage.elapsed % 60}s` : '0m'}
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {obdData && (
+                                        <>
+                                            <div className="p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Odometer Reading</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {obdData.odometerReading ? `${parseFloat(obdData.odometerReading).toLocaleString(undefined, { maximumFractionDigits: 1 })} KM` : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Accum. Mileage</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {obdData.deviceAccumulatedMileage ? `${parseFloat(obdData.deviceAccumulatedMileage).toLocaleString(undefined, { maximumFractionDigits: 1 })} KM` : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Remaining Fuel</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {obdData.remainingFuelPercentage ? `${obdData.remainingFuelPercentage}%` : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Engine RPM</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {obdData.currentRPM ? `${obdData.currentRPM} RPM` : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Coolant Temp</span>
+                                                <span className="text-xs font-semibold text-white font-mono font-mono font-mono font-mono">
+                                                    {obdData.coolantTemperature ? `${obdData.coolantTemperature}°C` : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Battery Voltage</span>
+                                                <span className="text-xs font-semibold text-white font-mono">
+                                                    {obdData.vehicleBatterVoltage ? `${(parseFloat(obdData.vehicleBatterVoltage) / 10).toFixed(1)} V` : 'N/A'}
+                                                </span>
+                                            </div>
+                                            {obdData.vin && (
+                                                <div className="sm:col-span-2 p-3 rounded-lg border border-purple-500/20 bg-purple-500/5">
+                                                    <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 text-purple-400">OBD Vehicle VIN</span>
+                                                    <span className="text-xs font-semibold text-white font-mono break-all">{obdData.vin}</span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+
+                                    {gpsData.locDesc && (
+                                        <div className="sm:col-span-2 md:col-span-3 p-3 rounded-lg border border-white/5 bg-white/5">
+                                            <span className="block text-[10px] uppercase tracking-wider font-bold mb-1 opacity-60">Current Address</span>
+                                            <span className="text-xs font-medium text-white">{gpsData.locDesc}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="sm:col-span-2 md:col-span-4 flex items-center justify-center p-0.5">
+                                        <a
+                                            href={`https://www.google.com/maps/search/?api=1&query=${gpsData.lat},${gpsData.lng}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="btn-primary w-full text-center text-xs flex items-center justify-center gap-1.5 !py-2.5"
+                                        >
+                                            <ExternalLink size={12} /> View on Google Maps
+                                        </a>
+                                    </div>
+                                </div>
+
+                                {gpsTrack && gpsTrack.length > 0 && (
+                                    <div className="border-t border-white/10 pt-4">
+                                        <h4 className="text-xs font-semibold mb-2.5 flex items-center gap-1.5 text-white">
+                                            <Clock size={13} className="text-lime" style={{ color: 'var(--brand-lime)' }} /> Recent Historical Route Points
+                                        </h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-[11px] border-collapse text-left">
+                                                <thead>
+                                                    <tr className="border-b border-white/10">
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-gray-400">Time</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-gray-400">Latitude</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-gray-400">Longitude</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-gray-400">Speed</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-gray-400">Mileage</th>
+                                                        <th className="pb-1.5 font-bold uppercase text-[9px] tracking-wider text-right text-gray-400">Link</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {gpsTrack.map((pt, idx) => (
+                                                        <tr key={idx} className="border-b border-white/5">
+                                                            <td className="py-2 text-white font-mono">{pt.gpsTime}</td>
+                                                            <td className="py-2 text-white font-mono">{pt.lat.toFixed(5)}</td>
+                                                            <td className="py-2 text-white font-mono">{pt.lng.toFixed(5)}</td>
+                                                            <td className="py-2 text-white font-mono">{pt.gpsSpeed !== undefined ? pt.gpsSpeed : (pt.speed || 0)} km/h</td>
+                                                            <td className="py-2 text-white font-mono">{pt.mileage !== undefined ? `${(pt.mileage / 1000).toFixed(2)} km` : 'N/A'}</td>
+                                                            <td className="py-2 text-right">
+                                                                <a
+                                                                    href={`https://www.google.com/maps/search/?api=1&query=${pt.lat},${pt.lng}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-lime hover:underline flex items-center justify-end gap-1 font-semibold"
+                                                                    style={{ color: 'var(--brand-lime)' }}
+                                                                >
+                                                                    Map <ExternalLink size={10} />
+                                                                </a>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Status Stepper (Workflow) Fixed at Bottom ── */}
+            <StatusStepper 
+                currentStatus={wo.status} 
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                onTransition={handleTransition}
+                actionLoading={actionLoading}
+            />
         </div>
     );
 };
@@ -2349,53 +2212,120 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 );
 
 const PHASES = [
-    { key: 'registration', label: 'Registration', statuses: ['DRAFT', 'START'] },
-    { key: 'reception', label: 'Reception', statuses: ['VEHICLE_CHECKED_IN'] },
-    { key: 'repair', label: 'Repair', statuses: ['PARTS_REQUESTED', 'PARTS_RECEIVED', 'IN_PROGRESS', 'PAUSED'] },
-    { key: 'qc', label: 'QC', statuses: ['QUALITY_CHECK', 'FAILED_QC'] },
-    { key: 'release', label: 'Release', statuses: ['READY_FOR_RELEASE', 'VEHICLE_RELEASED'] },
-];
+    { key: 'tasks', label: 'Tasks & Parts', status: 'TASKS' },
+    { key: 'labour', label: 'Labour', status: 'LABOUR' },
+    { key: 'qc', label: 'QC & Photos', status: 'QC_PHOTOS' },
+    { key: 'billing', label: 'Billing', status: 'BILLING' },
+] as const;
 
-const StatusStepper = ({ currentStatus, t_func }: { currentStatus: WorkOrderStatus; t_func: any }) => {
-    const currentPhaseIndex = PHASES.findIndex(p => p.statuses.includes(currentStatus));
+const StatusStepper = ({
+    currentStatus,
+    activeTab,
+    setActiveTab,
+    onTransition,
+    actionLoading
+}: {
+    currentStatus: WorkOrderStatus;
+    activeTab: Tab;
+    setActiveTab: (tab: Tab) => void;
+    onTransition: (targetStatus: WorkOrderStatus, targetTab: Tab) => Promise<void>;
+    actionLoading: boolean;
+}) => {
+    const normalizedStatus = normalizeStatus(currentStatus);
+    const currentPhaseIndex = PHASES.findIndex(p => p.status === normalizedStatus);
+    if (normalizedStatus === 'CANCELLED') return null;
+
+    const nextPhase = currentPhaseIndex < PHASES.length - 1 ? PHASES[currentPhaseIndex + 1] : null;
 
     return (
-        <div className="glass-card p-4 overflow-x-auto no-scrollbar">
-            <div className="flex items-center justify-between min-w-[600px] px-2">
-                {PHASES.map((phase, idx) => {
-                    const isCompleted = idx < currentPhaseIndex;
-                    const isActive = idx === currentPhaseIndex;
-                    const isLast = idx === PHASES.length - 1;
+        <div className="sticky bottom-0 z-40 w-full mt-8 bg-[#0c0c0e]/95 backdrop-blur-md border border-[var(--border-main)]/80 py-4 px-6 rounded-2xl shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
+            <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+                {/* Left: Status Indicator */}
+                <div className="flex flex-col items-start min-w-[140px]">
+                    <span className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">Current Status</span>
+                    <span className="text-sm font-extrabold text-white uppercase tracking-wide flex items-center gap-1.5 mt-0.5">
+                        <span className="w-2 h-2 rounded-full bg-[var(--brand-lime)] animate-pulse" />
+                        {currentStatus.replace(/_/g, ' ')}
+                    </span>
+                </div>
 
-                    return (
-                        <div key={phase.key} className="flex-1 flex items-center">
-                            <div className="flex flex-col items-center gap-2 relative">
-                                <div
-                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-300 z-10 ${isCompleted ? 'bg-[var(--brand-lime)] text-[var(--brand-black)]' :
-                                        isActive ? 'ring-4 ring-[var(--brand-lime-alpha)] bg-[var(--brand-lime)] text-[var(--brand-black)]' :
-                                            'bg-[var(--bg-input)] text-[var(--text-dim)] border border-[var(--border-main)]'
-                                        }`}
+                {/* Center: Interactive Stepper (Switches active views/tabs) */}
+                <div className="flex-1 flex items-center justify-center max-w-2xl w-full">
+                    {PHASES.map((phase, idx) => {
+                        const isCompleted = idx < currentPhaseIndex;
+                        const isActive = idx === currentPhaseIndex;
+                        const isTabActive = activeTab === phase.key;
+                        const isLast = idx === PHASES.length - 1;
+                        const isNavigable = idx <= currentPhaseIndex;
+
+                        return (
+                            <div key={phase.key} className="flex-1 flex items-center">
+                                <button
+                                    type="button"
+                                    disabled={actionLoading || !isNavigable}
+                                    onClick={() => {
+                                        if (isNavigable) {
+                                            setActiveTab(phase.key);
+                                        }
+                                    }}
+                                    className={`flex flex-col items-center gap-1.5 relative focus:outline-none transition-all duration-200 select-none ${
+                                        isNavigable ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed opacity-30'
+                                    }`}
                                 >
-                                    {isCompleted ? <CheckCircle2 size={14} /> : idx + 1}
-                                </div>
-                                <span
-                                    className={`text-[10px] font-semibold whitespace-nowrap uppercase tracking-tighter ${isActive ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'
-                                        }`}
-                                >
-                                    {t_func(`workOrders.phases.${phase.key}`)}
-                                </span>
-                            </div>
-                            {!isLast && (
-                                <div className="flex-1 h-[2px] mx-2 mb-4 bg-[var(--bg-input)] overflow-hidden">
                                     <div
-                                        className="h-full bg-[var(--brand-lime)] transition-all duration-700 ease-in-out"
-                                        style={{ width: isCompleted ? '100%' : '0%' }}
-                                    />
-                                </div>
+                                        className={`w-7.5 h-7.5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-300 z-10 ${
+                                            isCompleted ? 'bg-[var(--brand-lime)] text-[var(--brand-black)]' :
+                                            isActive ? 'ring-4 ring-[var(--brand-lime-alpha)] bg-[var(--brand-lime)] text-[var(--brand-black)]' :
+                                            'bg-[var(--bg-input)] text-[var(--text-dim)] border border-[var(--border-main)]'
+                                        } ${isTabActive && !isActive ? 'border-[var(--brand-lime)] border-2' : ''}`}
+                                    >
+                                        {isCompleted ? <CheckCircle2 size={13} className="stroke-[3]" /> : idx + 1}
+                                    </div>
+                                    <span
+                                        className={`text-[9px] font-bold whitespace-nowrap uppercase tracking-wider ${
+                                            isTabActive ? 'text-[var(--brand-lime)] font-black' : 'text-[var(--text-dim)]'
+                                        }`}
+                                    >
+                                        {phase.label}
+                                    </span>
+                                </button>
+                                {!isLast && (
+                                    <div className="flex-1 h-[2px] mx-4 mb-4 bg-[var(--border-main)]/30 overflow-hidden">
+                                        <div
+                                            className="h-full bg-[var(--brand-lime)] transition-all duration-700 ease-in-out"
+                                            style={{ width: isCompleted ? '100%' : '0%' }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Right: Progress Action Button */}
+                <div className="min-w-[200px] flex justify-end w-full md:w-auto">
+                    {nextPhase ? (
+                        <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={async () => {
+                                await onTransition(nextPhase.status, nextPhase.key);
+                            }}
+                            className="btn-primary !py-2.5 !px-6 text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-[var(--brand-lime-alpha)]/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-150"
+                        >
+                            {actionLoading ? (
+                                <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                                <ArrowRight size={13} className="stroke-[2.5]" />
                             )}
-                        </div>
-                    );
-                })}
+                            Progress to {nextPhase.label}
+                        </button>
+                    ) : (
+                        <span className="text-xs font-bold text-[var(--brand-lime)] bg-[var(--brand-lime-alpha)] px-3 py-1.5 rounded-lg border border-[var(--brand-lime)]/20 uppercase tracking-wider">
+                            Billing / Final Stage
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     );

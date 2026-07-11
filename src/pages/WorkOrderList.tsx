@@ -20,11 +20,7 @@ import {
 } from '../services/workOrderService';
 
 const STATUS_OPTIONS: WorkOrderStatus[] = [
-    'DRAFT', 'START',
-    'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED',
-    'IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND',
-    'QUALITY_CHECK', 'FAILED_QC', 'READY_FOR_RELEASE',
-    'VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED',
+    'TASKS', 'LABOUR', 'QC_PHOTOS', 'BILLING', 'CANCELLED',
 ];
 
 const PRIORITY_OPTIONS: Priority[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -143,12 +139,11 @@ const WorkOrderList = () => {
     };
 
     const getStatusBadgeClass = (status: WorkOrderStatus) => {
-        if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
-        if (['DRAFT'].includes(status)) return 'badge-gray';
-        if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
-        if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
-        if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
-        if (['CANCELLED'].includes(status)) return 'badge-red';
+        if (status === 'TASKS') return 'badge-blue';
+        if (status === 'LABOUR') return 'badge-lime';
+        if (status === 'QC_PHOTOS') return 'badge-orange';
+        if (status === 'BILLING') return 'badge-green';
+        if (status === 'CANCELLED') return 'badge-red';
         return 'badge-gray';
     };
 

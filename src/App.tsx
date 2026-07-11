@@ -25,6 +25,7 @@ import WorkshopInvoices from './pages/WorkshopInvoices';
 import MaintenanceTracker from './pages/MaintenanceTracker';
 import ScrapList from './pages/ScrapList';
 import WriteOffList from './pages/WriteOffList';
+import TaskTemplates from './pages/TaskTemplates';
 
 function App() {
     useAuthRefresh();
@@ -66,6 +67,7 @@ function App() {
                             <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
                             <Route path="/manage-staff" element={<ManageStaff />} />
                             <Route path="/inventory" element={<Inventory />} />
+                            <Route path="/task-templates" element={<TaskTemplates />} />
                             <Route path="/inventory/create" element={<CreatePart />} />
                             <Route path="/inventory/edit/:id" element={<CreatePart />} />
                             <Route path="/requirements" element={<WorkshopRequirements />} />

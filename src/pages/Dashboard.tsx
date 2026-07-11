@@ -37,28 +37,28 @@ const Dashboard = () => {
     });
     const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-    const STATUS_GROUPS: { label: string; statuses: WorkOrderStatus[]; color: string; icon: React.ElementType }[] = [
+    const STATUS_GROUPS = [
         {
             label: t('dashboard.groups.active'),
-            statuses: ['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'],
+            statuses: ['LABOUR'] as WorkOrderStatus[],
             color: '#C8E600',
             icon: Wrench,
         },
         {
             label: t('dashboard.groups.awaiting'),
-            statuses: ['DRAFT', 'START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'],
+            statuses: ['TASKS'] as WorkOrderStatus[],
             color: '#3498DB',
             icon: Clock,
         },
         {
             label: t('dashboard.groups.qc'),
-            statuses: ['QUALITY_CHECK', 'FAILED_QC', 'READY_FOR_RELEASE'],
+            statuses: ['QC_PHOTOS'] as WorkOrderStatus[],
             color: '#E67E22',
             icon: AlertTriangle,
         },
         {
             label: t('dashboard.groups.completed'),
-            statuses: ['VEHICLE_RELEASED', 'INVOICED', 'CLOSED'],
+            statuses: ['BILLING'] as WorkOrderStatus[],
             color: '#27AE60',
             icon: CheckCircle2,
         },
@@ -86,14 +86,14 @@ const Dashboard = () => {
         }
     };
 
-    const totalInside = workOrders.filter(wo => !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
-    const underPreventive = workOrders.filter(wo => wo.workOrderType === 'PREVENTIVE' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
-    const underCorrective = workOrders.filter(wo => wo.workOrderType === 'CORRECTIVE' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
-    const underAccident = workOrders.filter(wo => wo.workOrderType === 'ACCIDENT' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
-    const underWearItem = workOrders.filter(wo => wo.workOrderType === 'WEAR_ITEM' && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
-    const anyOtherCategory = workOrders.filter(wo => !['PREVENTIVE', 'CORRECTIVE', 'ACCIDENT', 'WEAR_ITEM'].includes(wo.workOrderType) && !['VEHICLE_RELEASED', 'INVOICED', 'CLOSED', 'CANCELLED'].includes(wo.status)).length;
+    const totalInside = workOrders.filter(wo => !['BILLING', 'CANCELLED'].includes(wo.status)).length;
+    const underPreventive = workOrders.filter(wo => wo.workOrderType === 'PREVENTIVE' && !['BILLING', 'CANCELLED'].includes(wo.status)).length;
+    const underCorrective = workOrders.filter(wo => wo.workOrderType === 'CORRECTIVE' && !['BILLING', 'CANCELLED'].includes(wo.status)).length;
+    const underAccident = workOrders.filter(wo => wo.workOrderType === 'ACCIDENT' && !['BILLING', 'CANCELLED'].includes(wo.status)).length;
+    const underWearItem = workOrders.filter(wo => wo.workOrderType === 'WEAR_ITEM' && !['BILLING', 'CANCELLED'].includes(wo.status)).length;
+    const anyOtherCategory = workOrders.filter(wo => !['PREVENTIVE', 'CORRECTIVE', 'ACCIDENT', 'WEAR_ITEM'].includes(wo.workOrderType) && !['BILLING', 'CANCELLED'].includes(wo.status)).length;
     const releasedInRange = workOrders.filter(wo => {
-        const isReleasedStatus = ['VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status);
+        const isReleasedStatus = ['BILLING'].includes(wo.status);
         if (!isReleasedStatus) return false;
         const dateToUse = wo.releasedAt || wo.updatedAt;
         if (!dateToUse) return false;
@@ -108,12 +108,11 @@ const Dashboard = () => {
         .slice(0, 8);
 
     const getStatusBadgeClass = (status: WorkOrderStatus) => {
-        if (['IN_PROGRESS', 'PAUSED', 'ADDITIONAL_WORK_FOUND'].includes(status)) return 'badge-lime';
-        if (['DRAFT'].includes(status)) return 'badge-gray';
-        if (['START', 'VEHICLE_CHECKED_IN', 'PARTS_REQUESTED', 'PARTS_RECEIVED'].includes(status)) return 'badge-blue';
-        if (['QUALITY_CHECK', 'FAILED_QC'].includes(status)) return 'badge-orange';
-        if (['READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'CLOSED'].includes(status)) return 'badge-green';
-        if (['CANCELLED'].includes(status)) return 'badge-red';
+        if (status === 'TASKS') return 'badge-blue';
+        if (status === 'LABOUR') return 'badge-lime';
+        if (status === 'QC_PHOTOS') return 'badge-orange';
+        if (status === 'BILLING') return 'badge-green';
+        if (status === 'CANCELLED') return 'badge-red';
         return 'badge-gray';
     };
 

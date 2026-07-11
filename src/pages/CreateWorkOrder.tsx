@@ -189,6 +189,7 @@ const CreateWorkOrder = () => {
         priority: 'MEDIUM' as Priority,
         faultDescription: '',
         notes: '',
+        odometerAtEntry: '',
         requiredPhotos: [
             { label: 'Odometer Reading', stage: 'CHECK_IN', isMandatory: true },
             { label: 'Front View (Vehicle)', stage: 'CHECK_IN', isMandatory: true },
@@ -226,6 +227,11 @@ const CreateWorkOrder = () => {
         handleChange('vehicleId', v._id);
         setVehicleSearchTerm('');
         setVehicles([]);
+
+        // Pre-fill odometer from vehicle's basicDetails if available
+        if (v.basicDetails?.odometer) {
+            handleChange('odometerAtEntry', String(v.basicDetails.odometer));
+        }
 
         // Fetch GPS device list and try to match
         setGpsLoading(true);
@@ -296,7 +302,12 @@ const CreateWorkOrder = () => {
                     getVehicleGpsMileage(activeImei).catch(() => [])
                 ]);
                 setGpsLoc(loc);
-                setGpsMileage(mileageData && mileageData.length > 0 ? mileageData[0] : null);
+                const mileage = mileageData && mileageData.length > 0 ? mileageData[0] : null;
+                setGpsMileage(mileage);
+                if (mileage && mileage.totalMileage) {
+                    const mileageKm = Math.round(mileage.totalMileage / 1000);
+                    handleChange('odometerAtEntry', String(mileageKm));
+                }
             }
         } catch (err) {
             console.error('Failed to resolve GPS matching', err);
@@ -308,6 +319,7 @@ const CreateWorkOrder = () => {
     const handleVehicleClear = () => {
         setSelectedVehicleData(null);
         handleChange('vehicleId', '');
+        handleChange('odometerAtEntry', '');
         setVehicleSearchTerm('');
         setVehicles([]);
         setMatchedGps(null);
@@ -400,6 +412,7 @@ const CreateWorkOrder = () => {
                 notes: form.notes || undefined,
                 requiredPhotos: form.requiredPhotos,
                 gpsSerialNumber: matchedGps?.imei || undefined,
+                odometerAtEntry: Number(form.odometerAtEntry),
             };
             const result = await createWorkOrder(payload);
 
@@ -448,9 +461,9 @@ const CreateWorkOrder = () => {
     const canNavigateToStep = (stepNum: number) => {
         if (stepNum === 1) return true;
         if (stepNum === 2) return !!form.workOrderType;
-        if (stepNum === 3) return !!form.workOrderType && !!form.vehicleId;
-        if (stepNum === 4) return !!form.workOrderType && !!form.vehicleId && !!form.faultDescription;
-        if (stepNum === 5) return !!form.workOrderType && !!form.vehicleId && !!form.faultDescription;
+        if (stepNum === 3) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry;
+        if (stepNum === 4) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry && !!form.faultDescription;
+        if (stepNum === 5) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry && !!form.faultDescription;
         return false;
     };
 
@@ -644,6 +657,21 @@ const CreateWorkOrder = () => {
                                                             </span>
                                                         )}
                                                     </div>
+                                                </div>
+
+                                                {/* Odometer Entry Input */}
+                                                <div className="pt-4 border-t border-[var(--border-main)]/30 space-y-2">
+                                                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">
+                                                        Odometer at Entry (KM) *
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        placeholder="E.g. 45200"
+                                                        className="input-field w-full"
+                                                        value={form.odometerAtEntry}
+                                                        onChange={(e) => handleChange('odometerAtEntry', e.target.value)}
+                                                        required
+                                                    />
                                                 </div>
 
                                                 {/* GPS Status Combined (nested) */}
@@ -1012,7 +1040,7 @@ const CreateWorkOrder = () => {
                                     className="btn-primary flex-1"
                                     disabled={
                                         (currentStep === 1 && !form.workOrderType) ||
-                                        (currentStep === 2 && !form.vehicleId) ||
+                                        (currentStep === 2 && (!form.vehicleId || !form.odometerAtEntry)) ||
                                         (currentStep === 3 && !form.faultDescription)
                                     }
                                     onClick={() => setCurrentStep(prev => prev + 1)}
@@ -1024,7 +1052,7 @@ const CreateWorkOrder = () => {
                                     key="submit-btn"
                                     type="submit"
                                     className="btn-primary flex-1"
-                                    disabled={submitting || !form.workOrderType || !form.vehicleId || !form.faultDescription}
+                                    disabled={submitting || !form.workOrderType || !form.vehicleId || !form.odometerAtEntry || !form.faultDescription}
                                     id="submit-work-order"
                                 >
                                     {submitting ? (

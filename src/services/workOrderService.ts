@@ -4,11 +4,7 @@ import { Vehicle } from './vehicleService';
 // ── Enums / Types ────────────────────────────────────────────────────
 
 export type WorkOrderStatus =
-    | 'DRAFT' | 'START'
-    | 'VEHICLE_CHECKED_IN' | 'PARTS_REQUESTED' | 'PARTS_RECEIVED'
-    | 'IN_PROGRESS' | 'PAUSED' | 'ADDITIONAL_WORK_FOUND'
-    | 'QUALITY_CHECK' | 'FAILED_QC' | 'READY_FOR_RELEASE'
-    | 'VEHICLE_RELEASED' | 'INVOICED' | 'CLOSED' | 'CANCELLED';
+    | 'TASKS' | 'LABOUR' | 'QC_PHOTOS' | 'BILLING' | 'CANCELLED';
 
 export type WorkOrderType =
     | 'PREVENTIVE' | 'CORRECTIVE' | 'PRE_ENTRY' | 'ACCIDENT'
@@ -35,6 +31,8 @@ export interface WorkOrderTask {
     actualHours?: number;
     completedAt?: string;
     notes?: string;
+    isDoable?: boolean;
+    taskTemplateId?: string | Record<string, unknown>;
 }
 
 export interface WorkOrderPart {
@@ -48,6 +46,8 @@ export interface WorkOrderPart {
     status: PartStatus;
     receivedDate?: string;
     installedBy?: string;
+    inventoryPartId?: string | Record<string, unknown>;
+    taskTemplateId?: string | Record<string, unknown>;
 }
 
 export interface LabourEntry {
@@ -142,6 +142,7 @@ export interface CreateWorkOrderPayload {
     notes?: string;
     requiredPhotos?: { label: string; description?: string; stage: string; isMandatory: boolean }[];
     requiredParts?: { inventoryPartId?: string; partName: string; quantity: number; unitCost: number }[];
+    odometerAtEntry?: number;
 }
 
 export const createWorkOrder = async (payload: CreateWorkOrderPayload): Promise<WorkOrder> => {
@@ -202,6 +203,7 @@ export interface AddTaskPayload {
     assignedTo?: string;
     estimatedHours?: number;
     notes?: string;
+    taskTemplateId?: string;
 }
 
 export const addTask = async (workOrderId: string, payload: AddTaskPayload): Promise<WorkOrder> => {
@@ -214,6 +216,7 @@ export interface UpdateTaskPayload {
     actualHours?: number;
     notes?: string;
     assignedTo?: string;
+    isDoable?: boolean;
 }
 
 export const updateTask = async (
@@ -227,6 +230,11 @@ export const updateTask = async (
 
 export const removeTask = async (workOrderId: string, taskId: string): Promise<WorkOrder> => {
     const response = await api.delete(`/api/work-orders/${workOrderId}/tasks/${taskId}`);
+    return response.data.data || response.data;
+};
+
+export const toggleTaskDoable = async (workOrderId: string, taskId: string): Promise<WorkOrder> => {
+    const response = await api.put(`/api/work-orders/${workOrderId}/tasks/${taskId}/toggle-doable`);
     return response.data.data || response.data;
 };
 
