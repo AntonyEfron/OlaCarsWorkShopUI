@@ -391,7 +391,7 @@ const CreateWorkOrder = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.workOrderType || !form.vehicleId || !form.faultDescription) {
+        if (!form.workOrderType || !form.vehicleId) {
             toast.error(t('workOrders.create.validation'));
             return;
         }
@@ -408,7 +408,7 @@ const CreateWorkOrder = () => {
                 vehicleId: form.vehicleId,
                 branchId,
                 priority: form.priority,
-                faultDescription: form.faultDescription,
+                faultDescription: form.faultDescription || 'No job description provided',
                 notes: form.notes || undefined,
                 requiredPhotos: form.requiredPhotos,
                 gpsSerialNumber: matchedGps?.imei || undefined,
@@ -454,16 +454,14 @@ const CreateWorkOrder = () => {
         { number: 1, label: t('workOrders.create.type'), icon: Wrench },
         { number: 2, label: t('workOrders.create.vehicle'), icon: Car },
         { number: 3, label: t('workOrders.create.fault'), icon: AlertTriangle },
-        { number: 4, label: t('workOrders.create.notes'), icon: FileText },
-        { number: 5, label: t('workOrders.create.requiredPhotos') || 'Photos', icon: Camera }
+        { number: 4, label: t('workOrders.create.requiredPhotos') || 'Photos', icon: Camera }
     ];
 
     const canNavigateToStep = (stepNum: number) => {
         if (stepNum === 1) return true;
         if (stepNum === 2) return !!form.workOrderType;
         if (stepNum === 3) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry;
-        if (stepNum === 4) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry && !!form.faultDescription;
-        if (stepNum === 5) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry && !!form.faultDescription;
+        if (stepNum === 4) return !!form.workOrderType && !!form.vehicleId && !!form.odometerAtEntry;
         return false;
     };
 
@@ -844,7 +842,7 @@ const CreateWorkOrder = () => {
                                         {/* Right Column: Job Description */}
                                         <div className="lg:col-span-8 space-y-2">
                                             <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">
-                                                {t('workOrders.create.fault')} *
+                                                {t('workOrders.create.fault')} (Optional)
                                             </label>
                                             <textarea
                                                 value={form.faultDescription}
@@ -853,7 +851,6 @@ const CreateWorkOrder = () => {
                                                 rows={8}
                                                 className="input-field resize-none text-xs flex-1"
                                                 id="fault-description"
-                                                required
                                                 style={{ minHeight: '215px' }}
                                             />
                                         </div>
@@ -861,66 +858,8 @@ const CreateWorkOrder = () => {
                                 </div>
                             )}
 
-                            {/* Step 4: Additional Notes */}
+                            {/* Step 4: Vehicle Arrival Photos */}
                             {currentStep === 4 && (
-                                <div className="space-y-4 animate-fadeInUp">
-                                    <div className="flex flex-col gap-1 border-b border-[var(--border-main)]/30 pb-3">
-                                        <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                                            {t('workOrders.create.notes')}
-                                        </h2>
-                                        <p className="text-[11px] text-gray-400">
-                                            Provide any optional remarks, technician alerts, or specific requests.
-                                        </p>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-2">
-                                        {/* Left Column: Live Summary Recap */}
-                                        <div className="lg:col-span-5 space-y-3">
-                                            <div className="p-5 rounded-2xl bg-white/5 border border-white/5 space-y-4">
-                                                <h3 className="text-[10px] font-black uppercase tracking-widest text-lime">Work Order Summary</h3>
-                                                <div className="grid grid-cols-2 gap-4 text-xs">
-                                                    <div>
-                                                        <span className="block text-gray-500 uppercase tracking-wider text-[9px] mb-0.5">Order Type</span>
-                                                        <span className="font-bold text-white uppercase">{form.workOrderType.replace('_', ' ')}</span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="block text-gray-500 uppercase tracking-wider text-[9px] mb-0.5">Priority</span>
-                                                        <span className="font-bold text-white uppercase">{form.priority}</span>
-                                                    </div>
-                                                    <div className="col-span-2 border-t border-white/5 pt-2">
-                                                        <span className="block text-gray-500 uppercase tracking-wider text-[9px] mb-0.5">Vehicle</span>
-                                                        <span className="font-bold text-white">
-                                                            {selectedVehicleData ? `${selectedVehicleData.basicDetails?.make} ${selectedVehicleData.basicDetails?.model} (${selectedVehicleData.legalDocs?.registrationNumber || 'No Plate'})` : 'N/A'}
-                                                        </span>
-                                                    </div>
-                                                    <div className="col-span-2 border-t border-white/5 pt-2">
-                                                        <span className="block text-gray-500 uppercase tracking-wider text-[9px] mb-0.5">Job Description</span>
-                                                        <p className="text-gray-300 font-medium leading-relaxed italic">"{form.faultDescription}"</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Right Column: Additional Notes Input */}
-                                        <div className="lg:col-span-7 space-y-2">
-                                            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">
-                                                {t('workOrders.create.notes')} (Optional)
-                                            </label>
-                                            <textarea
-                                                value={form.notes}
-                                                onChange={(e) => handleChange('notes', e.target.value)}
-                                                placeholder={t('workOrders.create.notesPlaceholder')}
-                                                rows={8}
-                                                className="input-field resize-none text-xs"
-                                                style={{ minHeight: '200px' }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Step 5: Vehicle Arrival Photos */}
-                            {currentStep === 5 && (
                                 <div className="space-y-6 animate-fadeInUp">
                                     <div className="flex flex-col gap-1 border-b border-[var(--border-main)]/30 pb-3">
                                         <h2 className="text-sm font-bold text-white uppercase tracking-wider">
@@ -1033,15 +972,14 @@ const CreateWorkOrder = () => {
                                 </button>
                             )}
 
-                            {currentStep < 5 ? (
+                            {currentStep < 4 ? (
                                 <button
                                     key="next-btn"
                                     type="button"
                                     className="btn-primary flex-1"
                                     disabled={
                                         (currentStep === 1 && !form.workOrderType) ||
-                                        (currentStep === 2 && (!form.vehicleId || !form.odometerAtEntry)) ||
-                                        (currentStep === 3 && !form.faultDescription)
+                                        (currentStep === 2 && (!form.vehicleId || !form.odometerAtEntry))
                                     }
                                     onClick={() => setCurrentStep(prev => prev + 1)}
                                 >
@@ -1052,7 +990,7 @@ const CreateWorkOrder = () => {
                                     key="submit-btn"
                                     type="submit"
                                     className="btn-primary flex-1"
-                                    disabled={submitting || !form.workOrderType || !form.vehicleId || !form.odometerAtEntry || !form.faultDescription}
+                                    disabled={submitting || !form.workOrderType || !form.vehicleId || !form.odometerAtEntry}
                                     id="submit-work-order"
                                 >
                                     {submitting ? (

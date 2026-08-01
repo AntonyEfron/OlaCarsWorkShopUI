@@ -17,6 +17,9 @@ export interface InventoryPart {
   unitCost: number;
   quantityOnHand: number;
   quantityReserved: number;
+  quantityBlocked?: number;
+  isBlocked?: boolean;
+  blockedReason?: string;
   quantityAvailable: number; // Virtual
   reorderLevel: number;
   branchId: string;
@@ -114,6 +117,30 @@ export const releaseStock = async (id: string, quantity: number): Promise<Invent
 export const installPart = async (id: string, quantity: number): Promise<InventoryPart> => {
   const response = await api.put(`/api/inventory/${id}/install`, { quantity });
   return response.data.data || response.data;
+};
+
+// ── Blocking Actions ──────────────────────────────────────────────────
+
+export const blockMaterialCode = async (id: string, isBlocked: boolean, blockedReason?: string): Promise<InventoryPart> => {
+  const response = await api.patch(`/api/inventory/${id}/block`, { isBlocked, blockedReason });
+  return response.data.data || response.data;
+};
+
+export const blockPartQuantity = async (id: string, quantityBlocked: number, blockedReason?: string): Promise<InventoryPart> => {
+  const response = await api.patch(`/api/inventory/${id}/block-quantity`, { quantityBlocked, blockedReason });
+  return response.data.data || response.data;
+};
+
+// ── Multi-Stock Overview & Reports ───────────────────────────────────
+
+export const getMultiStockOverview = async (codes: string | string[], branchId?: string): Promise<{ totalFound: number, requestedCodes: string[], data: any[] }> => {
+  const response = await api.post('/api/inventory/multi-stock-overview', { codes, branchId });
+  return response.data;
+};
+
+export const getConsumptionReport = async (filters: { period?: string, startDate?: string, endDate?: string, itemCodes?: string, branchId?: string }): Promise<{ summary: any, data: any[] }> => {
+  const response = await api.get('/api/inventory/reports/consumption', { params: filters });
+  return response.data;
 };
 
 // ── Transactions & Requirements ──────────────────────────────────────
