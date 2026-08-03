@@ -62,6 +62,7 @@ const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
             icon: Package,
             subItems: [
                 { path: '/inventory', label: t('sidebar.inventoryStock', 'Inventory Stock') },
+                { path: '/inventory/approvals', label: t('sidebar.inventoryApprovals', 'Inventory Approvals') },
                 { path: '/task-templates', label: t('sidebar.taskTemplates', 'Task Templates') },
                 { path: '/requirements', label: t('sidebar.partRequirements', 'Part Requirements') },
                 { path: '/purchase-requests', label: t('sidebar.purchaseRequests', 'Purchase Requests') },

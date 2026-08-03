@@ -277,6 +277,56 @@ export const removePart = async (workOrderId: string, partId: string): Promise<W
     return response.data.data || response.data;
 };
 
+export interface PendingApprovalItem {
+    workOrderId: string;
+    workOrderNumber: string;
+    workOrderType: string;
+    status: string;
+    createdAt: string;
+    branch?: { _id: string; name: string };
+    vehicle?: {
+        make?: string;
+        model?: string;
+        vin?: string;
+        registrationNumber?: string;
+    };
+    pendingParts: Array<{
+        partId: string;
+        partName: string;
+        partNumber?: string;
+        quantity: number;
+        unitCost: number;
+        totalCost: number;
+        source?: string;
+        status?: string;
+        approvalStatus: string;
+        inventoryPartId?: string;
+        availableQuantity: number;
+        inStock: boolean;
+        taskTemplateId?: string;
+    }>;
+}
+
+export const getPendingInventoryApprovals = async (params?: { branchId?: string }): Promise<PendingApprovalItem[]> => {
+    const response = await api.get('/api/work-orders/inventory/pending-approvals', { params });
+    return response.data.data || [];
+};
+
+export const approvePart = async (workOrderId: string, partId: string): Promise<WorkOrder> => {
+    const response = await api.put(`/api/work-orders/${workOrderId}/parts/${partId}/approve`);
+    return response.data.data || response.data;
+};
+
+export const rejectPart = async (workOrderId: string, partId: string, reason?: string): Promise<WorkOrder> => {
+    const response = await api.put(`/api/work-orders/${workOrderId}/parts/${partId}/reject`, { reason });
+    return response.data.data || response.data;
+};
+
+export const approveAllParts = async (workOrderId: string): Promise<WorkOrder> => {
+    const response = await api.put(`/api/work-orders/${workOrderId}/parts/approve-all`);
+    return response.data.data || response.data;
+};
+
 // ── Labour ───────────────────────────────────────────────────────────
 
 export interface LogLabourPayload {

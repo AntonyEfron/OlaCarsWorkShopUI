@@ -10,12 +10,12 @@ import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask, toggleTaskDoable,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
-    getHourlyLabourRate, getTaxProfiles,
+    getHourlyLabourRate, getTaxProfiles, approvePart, rejectPart, approveAllParts,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
     type TaxProfile,
 } from '../services/workOrderService';
-import { getUserId, getUser } from '../utils/auth';
+import { getUserId, getUser, getUserRole } from '../utils/auth';
 import { getParts, type InventoryPart } from '../services/inventoryService';
 import {
     getVehicleGpsLocation, getGpsDevices, getVehicleGpsMileage, getVehicleGpsTrack, getVehicleGpsObdData,
@@ -290,20 +290,56 @@ const WorkOrderDetail = () => {
             setPartsLoading(true);
             getParts({ branchId: fetchBranchId }).then(parts => {
                 const vehicle = wo?.vehicleId as any;
-                const make = (vehicle?.basicDetails?.make || '').toLowerCase().trim();
-                const model = (vehicle?.basicDetails?.model || '').toLowerCase().trim();
+                const rawMake = (vehicle?.basicDetails?.make || '').toLowerCase().trim();
+                const rawModel = (vehicle?.basicDetails?.model || '').toLowerCase().trim();
+
+                const makeClean = rawMake.replace(/[^a-z0-9]/g, '');
+                const modelClean = rawModel.replace(/[^a-z0-9]/g, '');
+
+                let canonicalMake = makeClean;
+                if (makeClean.includes('jetu') || makeClean.includes('jetour')) canonicalMake = 'jetour';
+                else if (makeClean.includes('gell') || makeClean.includes('geel')) canonicalMake = 'geely';
+                else if (makeClean.includes('soue')) canonicalMake = 'soueast';
+                else if (makeClean.includes('tiggo') || makeClean.includes('cher')) canonicalMake = 'chery';
+                else if (makeClean.includes('kia')) canonicalMake = 'kia';
+                else if (makeClean.includes('honda')) canonicalMake = 'honda';
+
+                let canonicalModel = modelClean;
+                if (modelClean.includes('brv')) canonicalModel = 'brv';
+                else if (modelClean.includes('x70')) canonicalModel = 'x70';
+                else if (modelClean.includes('s07')) canonicalModel = 's07';
+                else if (modelClean.includes('okvango') || modelClean.includes('okavango')) canonicalModel = 'okavango';
+                else if (modelClean.includes('carens')) canonicalModel = 'carens';
+                else if (modelClean.includes('soluto')) canonicalModel = 'soluto';
+                else if (modelClean.includes('8pro') || modelClean.includes('tiggo')) canonicalModel = 'tiggo';
+
+                const ALL_KNOWN_MODELS = ['carens', 'soluto', 'brv', 'x70', 's07', 'okavango', 'tiggo'];
 
                 const filtered = parts.filter(p => {
                     if (!p.isActive) return false;
-                    if (make || model) {
-                        const nameLower = (p.partName || '').toLowerCase();
-                        const descLower = (p.description || '').toLowerCase();
+                    if (!rawMake && !rawModel) return true;
 
-                        const matchesMake = make ? (nameLower.includes(make) || descLower.includes(make)) : true;
-                        const matchesModel = model ? (nameLower.includes(model) || descLower.includes(model)) : true;
+                    const nameClean = (p.partName || p.partNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const descClean = (p.description || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const text = `${nameClean} ${descClean}`;
 
-                        return matchesMake && matchesModel;
+                    // 1. Model Specificity Rule:
+                    const mentionedModel = ALL_KNOWN_MODELS.find(m => text.includes(m));
+                    if (mentionedModel) {
+                        return canonicalModel ? text.includes(canonicalModel) : false;
                     }
+
+                    // 2. Make Rule:
+                    if (canonicalMake) {
+                        if (canonicalMake === 'jetour' || canonicalMake === 'soueast') {
+                            return text.includes('jetour') || text.includes('soueast') || text.includes('souest');
+                        }
+                        if (canonicalMake === 'chery') {
+                            return text.includes('chery') || text.includes('cherry') || text.includes('tiggo');
+                        }
+                        return text.includes(canonicalMake);
+                    }
+
                     return true;
                 });
 
@@ -973,6 +1009,33 @@ const WorkOrderDetail = () => {
                                 </div>
                             </div>
                         )}
+                        {/* Pending Approvals Warning Banner */}
+                        {(() => {
+                            const pendingCount = wo.parts.filter(p => (p as any).approvalStatus === 'PENDING').length;
+                            if (pendingCount === 0) return null;
+                            const activeRole = (getUserRole() || (user?.role as string) || '').toLowerCase();
+                            const isManagerRole = ['workshopmanager', 'branchmanager', 'admin', 'countrymanager', 'operationadmin'].includes(activeRole);
+                            return (
+                                <div className="glass-card p-4 border border-amber-500/40 bg-amber-500/10 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-300 animate-fadeIn">
+                                    <div className="flex items-center gap-2 text-xs font-semibold">
+                                        <AlertTriangle size={18} className="shrink-0 text-amber-400" />
+                                        <span>
+                                            <strong>{pendingCount} Part(s) Awaiting Workshop Manager Approval</strong> — Parts must be approved before work order can proceed to Labour.
+                                        </span>
+                                    </div>
+                                    {isManagerRole && (
+                                        <button
+                                            disabled={actionLoading}
+                                            onClick={() => doAction(() => approveAllParts(id!))}
+                                            className="btn-primary text-xs !py-1.5 !px-3 font-bold shrink-0 flex items-center gap-1"
+                                        >
+                                            <CheckCircle2 size={13} /> Approve All Parts
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
                         {wo.parts.length === 0 ? (
                             <div className="glass-card p-8 text-center">
                                 <Package size={36} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
@@ -980,49 +1043,94 @@ const WorkOrderDetail = () => {
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                {wo.parts.map((part) => (
-                                    <div key={part._id} className="glass-card p-4 flex items-start gap-3">
-                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
-                                            : part.status === 'REQUESTED' ? 'bg-orange-500/10 text-orange-500'
-                                                : 'bg-blue-500/10 text-blue-500'
-                                            }`}>
-                                            {part.status === 'INSTALLED' ? <CheckCircle2 size={20} />
-                                                : part.status === 'REQUESTED' ? <AlertTriangle size={20} />
-                                                    : <Package size={20} />}
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <p className="text-sm font-medium" style={{ color: 'var(--text-main)' }}>{part.partName}</p>
-                                                <span className={`badge text-[10px] ${part.status === 'INSTALLED' ? 'badge-green'
-                                                    : part.status === 'REQUESTED' ? 'badge-orange'
-                                                        : part.status === 'RESERVED' ? 'badge-blue'
-                                                            : part.status === 'RECEIVED' ? 'badge-blue'
-                                                                : 'badge-gray'
-                                                    }`}>
-                                                    {part.status === 'REQUESTED' ? '⏳ AWAITING APPROVAL' : part.status === 'RESERVED' ? 'ASSIGNED' : part.status}
-                                                </span>
+                                {wo.parts.map((part) => {
+                                    const appStatus = (part as any).approvalStatus || 'APPROVED';
+                                    const activeRole = (getUserRole() || (user?.role as string) || '').toLowerCase();
+                                    const isManagerRole = ['workshopmanager', 'branchmanager', 'admin', 'countrymanager', 'operationadmin'].includes(activeRole);
+                                    return (
+                                        <div key={part._id} className={`glass-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border ${
+                                            appStatus === 'PENDING' ? 'border-amber-500/30 bg-amber-500/5'
+                                            : appStatus === 'REJECTED' ? 'border-red-500/30 bg-red-500/5'
+                                            : 'border-[var(--border-main)]/50'
+                                        }`}>
+                                            <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                                    appStatus === 'REJECTED' ? 'bg-red-500/10 text-red-400'
+                                                    : appStatus === 'PENDING' ? 'bg-amber-500/10 text-amber-400'
+                                                    : part.status === 'INSTALLED' ? 'bg-green-500/10 text-green-500'
+                                                    : 'bg-blue-500/10 text-blue-500'
+                                                }`}>
+                                                    {appStatus === 'REJECTED' ? <X className="text-red-400" size={20} />
+                                                        : appStatus === 'PENDING' ? <AlertTriangle className="text-amber-400" size={20} />
+                                                        : part.status === 'INSTALLED' ? <CheckCircle2 size={20} />
+                                                        : <Package size={20} />}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <p className="text-sm font-bold text-white">{part.partName}</p>
+                                                        {/* Approval Status Badge */}
+                                                        {appStatus === 'APPROVED' ? (
+                                                            <span className="badge badge-green text-[10px]">APPROVED</span>
+                                                        ) : appStatus === 'PENDING' ? (
+                                                            <span className="badge badge-orange text-[10px] flex items-center gap-1">
+                                                                <AlertTriangle size={10} /> PENDING APPROVAL
+                                                            </span>
+                                                        ) : (
+                                                            <span className="badge text-[10px] bg-red-500/20 text-red-400 border border-red-500/30">REJECTED</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs mt-1 text-muted-foreground">
+                                                        Qty: <strong className="text-white">{part.quantity}</strong> • ${part.unitCost.toFixed(2)} each = <strong className="text-emerald-400">${part.totalCost.toFixed(2)}</strong>
+                                                    </p>
+                                                    {(part as any).rejectionReason && (
+                                                        <p className="text-[11px] text-red-400 mt-1 font-semibold">Reason: {(part as any).rejectionReason}</p>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                                                Qty: {part.quantity} • ${part.unitCost.toFixed(2)} each = ${part.totalCost.toFixed(2)}
-                                            </p>
+
+                                            {/* Actions */}
+                                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                                {appStatus === 'PENDING' && isManagerRole && !['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                                    <>
+                                                        <button
+                                                            disabled={actionLoading}
+                                                            onClick={() => doAction(() => approvePart(id!, part._id))}
+                                                            className="btn-primary text-xs !py-1.5 !px-3 font-bold flex items-center gap-1"
+                                                        >
+                                                            <CheckCircle2 size={12} /> Approve
+                                                        </button>
+                                                        <button
+                                                            disabled={actionLoading}
+                                                            onClick={() => {
+                                                                const reason = window.prompt(`Reason for rejecting '${part.partName}':`);
+                                                                if (reason !== null) {
+                                                                    doAction(() => rejectPart(id!, part._id, reason));
+                                                                }
+                                                            }}
+                                                            className="btn-secondary !text-red-400 text-xs !py-1.5 !px-3 font-bold hover:!bg-red-500/20"
+                                                        >
+                                                            Reject
+                                                        </button>
+                                                    </>
+                                                )}
+
+                                                {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                                    <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
+                                                        onClick={() => {
+                                                            const confirmMsg = part.status === 'INSTALLED'
+                                                                ? 'This part is currently INSTALLED. Removing it will return the stock to inventory. Are you sure you want to delete it?'
+                                                                : 'Are you sure you want to remove this part?';
+                                                            if (window.confirm(confirmMsg)) {
+                                                                doAction(() => removePart(id!, part._id));
+                                                            }
+                                                        }}>
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="flex gap-1 flex-shrink-0">
-                                            {!['BILLING', 'CANCELLED'].includes(wo.status) && (
-                                                <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
-                                                    onClick={() => {
-                                                        const confirmMsg = part.status === 'INSTALLED'
-                                                            ? 'This part is currently INSTALLED. Removing it will return the stock to inventory. Are you sure you want to delete it?'
-                                                            : 'Are you sure you want to remove this part?';
-                                                        if (window.confirm(confirmMsg)) {
-                                                            doAction(() => removePart(id!, part._id));
-                                                        }
-                                                    }}>
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -2198,6 +2306,7 @@ const WorkOrderDetail = () => {
                 setActiveTab={setActiveTab}
                 onTransition={handleTransition}
                 actionLoading={actionLoading}
+                hasPendingPartApprovals={(wo.parts || []).some(p => (p as any).approvalStatus === 'PENDING')}
             />
         </div>
     );
@@ -2223,19 +2332,22 @@ const StatusStepper = ({
     activeTab,
     setActiveTab,
     onTransition,
-    actionLoading
+    actionLoading,
+    hasPendingPartApprovals
 }: {
     currentStatus: WorkOrderStatus;
     activeTab: Tab;
     setActiveTab: (tab: Tab) => void;
     onTransition: (targetStatus: WorkOrderStatus, targetTab: Tab) => Promise<void>;
     actionLoading: boolean;
+    hasPendingPartApprovals: boolean;
 }) => {
     const normalizedStatus = normalizeStatus(currentStatus);
     const currentPhaseIndex = PHASES.findIndex(p => p.status === normalizedStatus);
     if (normalizedStatus === 'CANCELLED') return null;
 
     const nextPhase = currentPhaseIndex < PHASES.length - 1 ? PHASES[currentPhaseIndex + 1] : null;
+    const isLabourProgressBlocked = nextPhase?.status === 'LABOUR' && hasPendingPartApprovals;
 
     return (
         <div className="sticky bottom-0 z-40 w-full mt-8 bg-[#0c0c0e]/95 backdrop-blur-md border border-[var(--border-main)]/80 py-4 px-6 rounded-2xl shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
@@ -2307,18 +2419,26 @@ const StatusStepper = ({
                     {nextPhase ? (
                         <button
                             type="button"
-                            disabled={actionLoading}
+                            disabled={actionLoading || isLabourProgressBlocked}
+                            title={isLabourProgressBlocked ? "Cannot progress: Parts are awaiting Workshop Manager approval" : ""}
                             onClick={async () => {
+                                if (isLabourProgressBlocked) return;
                                 await onTransition(nextPhase.status, nextPhase.key);
                             }}
-                            className="btn-primary !py-2.5 !px-6 text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-[var(--brand-lime-alpha)]/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-150"
+                            className={`btn-primary !py-2.5 !px-6 text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all duration-150 ${
+                                isLabourProgressBlocked
+                                    ? '!bg-amber-500/20 !text-amber-300 !border-amber-500/40 cursor-not-allowed opacity-70 shadow-none hover:scale-100'
+                                    : 'shadow-[var(--brand-lime-alpha)]/20 hover:scale-[1.02] active:scale-[0.98]'
+                            }`}
                         >
                             {actionLoading ? (
                                 <Loader2 size={13} className="animate-spin" />
+                            ) : isLabourProgressBlocked ? (
+                                <AlertTriangle size={13} className="text-amber-400 shrink-0" />
                             ) : (
                                 <ArrowRight size={13} className="stroke-[2.5]" />
                             )}
-                            Progress to {nextPhase.label}
+                            {isLabourProgressBlocked ? 'Parts Approval Pending' : `Progress to ${nextPhase.label}`}
                         </button>
                     ) : (
                         <span className="text-xs font-bold text-[var(--brand-lime)] bg-[var(--brand-lime-alpha)] px-3 py-1.5 rounded-lg border border-[var(--brand-lime)]/20 uppercase tracking-wider">
