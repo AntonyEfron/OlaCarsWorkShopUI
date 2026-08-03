@@ -113,7 +113,7 @@ const PurchaseRequests = () => {
       setIsNewItem(false);
       const found = parts.find(p => p._id === partId);
       if (found) {
-        setItemCode(found.itemCode || found.partNumber || '');
+        setItemCode((found as any).itemCode || found.partNumber || '');
         setPartNumber(found.partNumber || '');
         setPartName(found.partName || '');
         setCategory((found as any).category || 'Engine');
@@ -552,7 +552,7 @@ const PurchaseRequests = () => {
                       <option value="">-- Select Item Code / Part from Master --</option>
                       {parts.map(p => (
                         <option key={p._id} value={p._id}>
-                          {p.itemCode ? `[${p.itemCode}] ` : ''}{p.partName} ({p.partNumber || 'No PN'}) — Stock: {p.quantityOnHand} {p.unit || 'PCS'}
+                          {(p as any).itemCode ? `[${(p as any).itemCode}] ` : ''}{p.partName} ({p.partNumber || 'No PN'}) — Stock: {p.quantityOnHand} {p.unit || 'PCS'}
                         </option>
                       ))}
                       <option value="NEW_ITEM">+ New Item (Not in Master Data)</option>

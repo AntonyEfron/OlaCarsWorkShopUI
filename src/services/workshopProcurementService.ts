@@ -51,6 +51,7 @@ export interface ProcurementRequest {
     fullName?: string;
     name?: string;
   };
+  requestedByRole?: string;
   approvedBy?: {
     _id: string;
     fullName?: string;
