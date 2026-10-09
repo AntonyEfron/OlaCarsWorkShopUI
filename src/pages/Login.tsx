@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Wrench, Eye, EyeOff, Loader2, Sun, Moon } from "lucide-react";
 import {
   workshopStaffLogin,
@@ -15,6 +15,8 @@ const Login = () => {
   const { t } = useTranslation();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromLocation = (location.state as any)?.from;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -47,7 +49,12 @@ const Login = () => {
       } else if (data.data) {
         setUser(data.data);
       }
-      navigate("/dashboard", { replace: true });
+
+      let destination = "/dashboard";
+      if (fromLocation && fromLocation.pathname) {
+        destination = fromLocation.pathname + (fromLocation.search || "");
+      }
+      navigate(destination, { replace: true });
     } catch {
       // Toast handled by interceptor
     } finally {

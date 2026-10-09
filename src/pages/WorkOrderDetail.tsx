@@ -1950,7 +1950,7 @@ const WorkOrderDetail = () => {
                                             );
                                         })()}
 
-                                        {!['QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED'].includes(wo.status) && (
+                                        {!['BILLING', 'QC_PHOTOS', 'QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status) && (
                                             <div className="flex items-center justify-center gap-2 text-red-500/80">
                                                 <AlertTriangle size={14} />
                                                 <span className="text-[10px] font-bold uppercase tracking-wider">Status must be QC or higher to generate bill</span>
@@ -1962,8 +1962,12 @@ const WorkOrderDetail = () => {
                                         <div className="p-6 rounded-2xl bg-[var(--brand-lime-alpha)]/5 border border-[var(--brand-lime-alpha)] relative overflow-hidden">
                                             <div className="flex justify-between items-start mb-6">
                                                 <div>
-                                                    <p className="text-[10px] font-bold text-[var(--brand-lime)] uppercase tracking-wider">Bill Generated</p>
-                                                    <h4 className="text-xl font-bold text-[var(--text-main)] mt-1">Invoice Linked Successfully</h4>
+                                                    <p className="text-[10px] font-bold text-[var(--brand-lime)] uppercase tracking-wider">
+                                                        {bill?.status === 'APPROVED' ? 'Bill Approved' : 'Bill Draft Generated'}
+                                                    </p>
+                                                    <h4 className="text-xl font-bold text-[var(--text-main)] mt-1">
+                                                        {bill?.status === 'APPROVED' ? 'Invoice Linked Successfully' : 'Awaiting Approval & Invoicing'}
+                                                    </h4>
                                                     <p className="text-xs font-mono font-bold text-[var(--text-dim)] mt-2 bg-black/10 px-2 py-1 rounded-md inline-block">
                                                         ID: {bill?.billNumber}
                                                     </p>

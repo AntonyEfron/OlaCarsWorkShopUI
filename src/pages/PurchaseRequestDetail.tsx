@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Package, Clock, CheckCircle2, XCircle, Truck, AlertTriangle,
   Loader2, User, Calendar, ShieldCheck, Image as ImageIcon, RotateCcw,
-  Send, AlertCircle, ExternalLink, Edit3, Save, CheckSquare, Layers, X
+  Send, AlertCircle, ExternalLink, Edit3, Save, CheckSquare, Layers, X, Share2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -292,6 +292,13 @@ const PurchaseRequestDetail = () => {
   const isApproved = request.status === 'APPROVED' || request.status === 'WAITING_QUOTATION';
   const canEdit = (isPending && isManager) || (isReturned && !isManager);
 
+  const handleCopyLink = () => {
+    if (!request) return;
+    const shareableUrl = `${window.location.origin}/purchase-requests/${request._id}`;
+    navigator.clipboard.writeText(shareableUrl);
+    toast.success('Shareable PR link copied to clipboard!');
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn max-w-5xl mx-auto pb-16">
       {/* Header */}
@@ -306,6 +313,13 @@ const PurchaseRequestDetail = () => {
                 {request.requestNumber}
               </h1>
               <StatusBadge status={request.status} />
+              <button
+                onClick={handleCopyLink}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+                title="Copy canonical share link"
+              >
+                <Share2 size={12} className="text-[var(--brand-lime)]" /> Copy Link
+              </button>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Created on <strong className="text-white">{new Date(request.createdAt).toLocaleString()}</strong> by <strong className="text-white">{request.technicianName || request.requestedBy?.fullName || 'Technician'}</strong>
