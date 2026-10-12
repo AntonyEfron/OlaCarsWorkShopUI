@@ -3,14 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
-    Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, ArrowRight, Upload, AlertTriangle,
-    Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink, X, Plus
+    Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, ChevronLeft, ArrowRight, Upload, AlertTriangle,
+    Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink, X, Plus,
+    Eye, Check, CheckCheck, Sparkles, Maximize2, FileCheck2, Wrench, AlertCircle, RotateCcw, Layers, ZoomIn,
+    User, Search, ChevronDown, ChevronUp, Phone, Mail, Car, FileText, Printer
 } from 'lucide-react';
 import {
     getWorkOrderById, progressWorkOrderStatus, addTask, updateTask, removeTask, toggleTaskDoable,
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
     getHourlyLabourRate, getTaxProfiles, approvePart, rejectPart, approveAllParts,
+    getBillingDrivers, type BillingDriver,
     type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
     type TaxProfile,
@@ -61,6 +64,12 @@ const WorkOrderDetail = () => {
     const [actionLoading, setActionLoading] = useState(false);
     const [showGpsModal, setShowGpsModal] = useState(false);
 
+    /* ── Progressive QC Flow state ── */
+    const [qcActiveStage, setQcActiveStage] = useState<'tasks' | 'general_parts' | 'repair_photos' | 'summary'>('tasks');
+    const [qcCurrentTaskIndex, setQcCurrentTaskIndex] = useState<number>(0);
+    const [qcViewMode, setQcViewMode] = useState<'progressive' | 'overview'>('progressive');
+    const [previewPhoto, setPreviewPhoto] = useState<{ url: string; caption?: string; stage?: string } | null>(null);
+
     const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
         { key: 'tasks', label: 'Tasks & Parts', icon: ListChecks },
         { key: 'labour', label: 'Labour', icon: Clock },
@@ -97,7 +106,37 @@ const WorkOrderDetail = () => {
 
     /* ── Service Bill ── */
     const [bill, setBill] = useState<any>(null);
+    const [showBillModal, setShowBillModal] = useState(false);
     const [isDriverBilled, setIsDriverBilled] = useState(false);
+    const [billingDrivers, setBillingDrivers] = useState<BillingDriver[]>([]);
+    const [selectedDriverId, setSelectedDriverId] = useState<string>('');
+    const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+    const [driverSearchQuery, setDriverSearchQuery] = useState('');
+    const [isDriverDropdownOpen, setIsDriverDropdownOpen] = useState(false);
+    const [driversLoading, setDriversLoading] = useState(false);
+    const driverDropdownRef = useRef<HTMLDivElement | null>(null);
+
+    // Close driver dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (driverDropdownRef.current && !driverDropdownRef.current.contains(event.target as Node)) {
+                setIsDriverDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Sync customerId whenever selected driver changes
+    useEffect(() => {
+        if (selectedDriverId && billingDrivers.length > 0) {
+            const matched = billingDrivers.find(d => d._id === selectedDriverId);
+            if (matched && matched.customer?._id) {
+                setSelectedCustomerId(matched.customer._id);
+            }
+        }
+    }, [selectedDriverId, billingDrivers]);
+
     const [hourlyRate, setHourlyRate] = useState(150);
     const [taxRate, setTaxRate] = useState(7);
     const [taxProfileId, setTaxProfileId] = useState('');
@@ -257,15 +296,39 @@ const WorkOrderDetail = () => {
                 }
             } catch { }
 
+            // Load billing drivers
+            try {
+                setDriversLoading(true);
+                const drivers = await getBillingDrivers();
+                setBillingDrivers(drivers || []);
+            } catch (driverErr) {
+                console.error("Failed to fetch billing drivers", driverErr);
+            } finally {
+                setDriversLoading(false);
+            }
+
             if (data.serviceBillId) {
                 const b = await getServiceBillById(data.serviceBillId);
                 setBill(b);
+                if (b) {
+                    setIsDriverBilled(!!b.isDriverBilled);
+                    if (b.driverId) {
+                        setSelectedDriverId(typeof b.driverId === 'object' ? b.driverId._id : b.driverId);
+                    }
+                    if (b.customerId) {
+                        setSelectedCustomerId(typeof b.customerId === 'object' ? b.customerId._id : b.customerId);
+                    }
+                }
             } else {
                 setBill(null);
                 // Default isDriverBilled to true if vehicle has current driver assigned
                 const v = data.vehicleId as any;
                 if (v && v.currentDriver) {
                     setIsDriverBilled(true);
+                    const vDriverId = typeof v.currentDriver === 'object' ? v.currentDriver._id : v.currentDriver;
+                    if (vDriverId) {
+                        setSelectedDriverId(vDriverId);
+                    }
                 } else {
                     setIsDriverBilled(false);
                 }
@@ -278,7 +341,18 @@ const WorkOrderDetail = () => {
     // Ensure bill is loaded if serviceBillId exists but bill state is null
     useEffect(() => {
         if (wo?.serviceBillId && !bill) {
-            getServiceBillById(wo.serviceBillId).then(setBill).catch(() => { });
+            getServiceBillById(wo.serviceBillId).then(b => {
+                setBill(b);
+                if (b) {
+                    setIsDriverBilled(!!b.isDriverBilled);
+                    if (b.driverId) {
+                        setSelectedDriverId(typeof b.driverId === 'object' ? b.driverId._id : b.driverId);
+                    }
+                    if (b.customerId) {
+                        setSelectedCustomerId(typeof b.customerId === 'object' ? b.customerId._id : b.customerId);
+                    }
+                }
+            }).catch(() => { });
         }
     }, [wo?.serviceBillId, bill]);
 
@@ -1320,497 +1394,1233 @@ const WorkOrderDetail = () => {
                 const requiredPhotosCount = requiredPhotoCaptions.length;
                 const uploadedPhotosCount = wo.photos.filter(p => p.caption && requiredPhotoCaptions.includes(p.caption)).length;
 
+                // Vehicle repair verification photos (wo.requiredPhotos)
+                const vehicleRequiredPhotos = wo.requiredPhotos || [];
+                const uploadedVehiclePhotosCount = wo.photos.filter(p => vehicleRequiredPhotos.some(rp => rp.label === p.caption)).length;
+
+                // Unassigned general parts
+                const generalParts = activeParts.filter(p => !p.taskTemplateId || !doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString()));
+                const installedGeneralPartsCount = generalParts.filter(p => p.status === 'INSTALLED').length;
+
                 const totalSteps = totalTasksCount + totalPartsCount + requiredPhotosCount;
                 const completedSteps = completedTasksCount + installedPartsCount + uploadedPhotosCount;
                 const overallPercent = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 100;
-                const hasAllPhotos = uploadedPhotosCount === requiredPhotosCount;
+                const hasAllTaskPhotos = totalTasksCount > 0 && uploadedPhotosCount === totalTasksCount;
+                const allTasksCompleted = totalTasksCount > 0 && completedTasksCount === totalTasksCount;
+                const allPartsInstalled = totalPartsCount === 0 || installedPartsCount === totalPartsCount;
+                const isQcFullyComplete = allTasksCompleted && hasAllTaskPhotos && allPartsInstalled;
+
+                // Safe current task in progressive queue
+                const safeTaskIndex = Math.max(0, Math.min(qcCurrentTaskIndex, Math.max(0, doableTasks.length - 1)));
+                const currentTask = doableTasks[safeTaskIndex];
+                const currentTaskParts = currentTask
+                    ? activeParts.filter(p => p.taskTemplateId && currentTask.taskTemplateId && p.taskTemplateId.toString() === currentTask.taskTemplateId.toString())
+                    : [];
+                const currentTaskPhoto = currentTask ? wo.photos.find(p => p.caption === `TASK_${currentTask._id}`) : undefined;
+                const currentTaskIsCompleted = currentTask ? currentTask.status === 'COMPLETED' : false;
+                const currentTaskPendingParts = currentTaskParts.filter(p => p.status !== 'INSTALLED');
+                const currentTaskAllPartsInstalled = currentTaskParts.length === 0 || currentTaskPendingParts.length === 0;
+
+                // Helper to install all parts for a group
+                const handleInstallPartsGroup = async (partsToInstall: any[]) => {
+                    const pending = partsToInstall.filter(p => p.status !== 'INSTALLED');
+                    if (pending.length === 0) return;
+                    await doAction(async () => {
+                        for (const part of pending) {
+                            await updatePart(id!, part._id, { status: 'INSTALLED' });
+                        }
+                        toast.success(`Installed ${pending.length} part(s)`);
+                    });
+                };
 
                 return (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {/* QC Progress Overview Widget */}
-                        <div className="glass-card p-2.5 px-4 bg-gradient-to-r from-[var(--bg-card)] via-[var(--bg-card)]/90 to-[var(--brand-lime-alpha)]/5 border border-[var(--border-main)]/50 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md relative overflow-hidden">
-                            {/* Decorative background glows */}
-                            <div className="absolute -right-20 -top-20 w-32 h-32 rounded-full bg-[var(--brand-lime)]/5 blur-2xl pointer-events-none" />
+                    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* ═══════════════ QC TOP PROGRESS OVERVIEW ═══════════════ */}
+                        <div className="glass-card p-4 bg-gradient-to-r from-[var(--bg-card)] via-[var(--bg-card)]/90 to-[var(--brand-lime-alpha)]/10 border border-[var(--border-main)]/60 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xl relative overflow-hidden">
+                            <div className="absolute -right-20 -top-20 w-44 h-44 rounded-full bg-[var(--brand-lime)]/10 blur-3xl pointer-events-none" />
 
-                            <div className="flex items-center gap-3 shrink-0 relative z-10">
-                                <div className="w-8 h-8 rounded-lg bg-[var(--brand-lime-alpha)]/20 flex items-center justify-center text-[var(--brand-lime)] shrink-0">
-                                    <Shield size={16} className="animate-pulse" />
+                            <div className="flex items-center gap-3.5 relative z-10">
+                                <div className="w-11 h-11 rounded-xl bg-[var(--brand-lime-alpha)]/20 border border-[var(--brand-lime)]/30 flex items-center justify-center text-[var(--brand-lime)] shrink-0 shadow-lg shadow-[var(--brand-lime)]/10">
+                                    <Shield size={22} className="animate-pulse" />
                                 </div>
                                 <div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <h3 className="text-sm font-bold text-[var(--text-main)]">Quality Control</h3>
-                                        <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5 inline-block">
-                                            <div
-                                                className="h-full bg-gradient-to-r from-[var(--brand-lime)] to-emerald-400 transition-all duration-500 ease-out"
-                                                style={{ width: `${overallPercent}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-xs font-bold text-[var(--brand-lime)] font-mono">{Math.round(overallPercent)}%</span>
+                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                        <h3 className="text-base font-extrabold text-[var(--text-main)] tracking-tight">Quality Control Inspection</h3>
+                                        <span className="badge badge-lime text-[10px] font-mono px-2 py-0.5 bg-[var(--brand-lime)]/10 border border-[var(--brand-lime)]/40 text-[var(--brand-lime)]">
+                                            {Math.round(overallPercent)}% Completed
+                                        </span>
                                     </div>
-                                    <p className="text-[10px] text-[var(--text-dim)] font-medium">Verify tasks, parts, and upload photo evidence.</p>
+                                    <p className="text-xs text-[var(--text-dim)] font-medium mt-0.5">
+                                        Progressive verification flow: inspect task parts, complete tasks, take proof photos, then capture repair verification photos.
+                                    </p>
                                 </div>
                             </div>
 
-                            {/* Stats Row */}
-                            <div className="flex flex-wrap items-center gap-2 md:border-l border-[var(--border-main)]/50 md:pl-4 relative z-10">
-                                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded-lg border border-[var(--border-main)]/30">
-                                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] font-bold">Tasks</span>
-                                    <span className="text-xs font-extrabold text-[var(--text-main)] font-mono">
-                                        {completedTasksCount}/{totalTasksCount}
-                                    </span>
+                            {/* Stat counters */}
+                            <div className="flex flex-wrap items-center gap-2 relative z-10">
+                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${
+                                    allTasksCompleted ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-white/5 border-[var(--border-main)]/40 text-[var(--text-main)]'
+                                }`}>
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Tasks</span>
+                                    <span className="text-xs font-black font-mono">{completedTasksCount}/{totalTasksCount}</span>
+                                    {allTasksCompleted && <CheckCircle2 size={12} className="text-emerald-400 stroke-[3]" />}
                                 </div>
-                                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded-lg border border-[var(--border-main)]/30">
-                                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] font-bold">Parts</span>
-                                    <span className="text-xs font-extrabold text-[var(--text-main)] font-mono">
-                                        {installedPartsCount}/{totalPartsCount}
-                                    </span>
+
+                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${
+                                    allPartsInstalled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-white/5 border-[var(--border-main)]/40 text-[var(--text-main)]'
+                                }`}>
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Parts</span>
+                                    <span className="text-xs font-black font-mono">{installedPartsCount}/{totalPartsCount}</span>
+                                    {allPartsInstalled && <CheckCircle2 size={12} className="text-emerald-400 stroke-[3]" />}
                                 </div>
-                                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded-lg border border-[var(--border-main)]/30">
-                                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] font-bold">Photos</span>
-                                    <span className={`text-xs font-extrabold font-mono ${hasAllPhotos ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
-                                        {uploadedPhotosCount}/{requiredPhotosCount}
-                                    </span>
+
+                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${
+                                    hasAllTaskPhotos ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                                }`}>
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Task Photos</span>
+                                    <span className="text-xs font-black font-mono">{uploadedPhotosCount}/{requiredPhotosCount}</span>
+                                    {hasAllTaskPhotos ? <CheckCircle2 size={12} className="text-emerald-400 stroke-[3]" /> : <Camera size={12} />}
+                                </div>
+
+                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${
+                                    uploadedVehiclePhotosCount > 0 ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-white/5 border-[var(--border-main)]/40 text-[var(--text-main)]'
+                                }`}>
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Repair Photos</span>
+                                    <span className="text-xs font-black font-mono">{uploadedVehiclePhotosCount}/{vehicleRequiredPhotos.length}</span>
                                 </div>
                             </div>
                         </div>
 
-                        {/* ══════════════════ COMBINED VERIFICATION CHECKLIST ══════════════════ */}
-                        <div className="space-y-3">
+                        {/* ═══════════════ PROGRESSIVE STAGE TABS BAR ═══════════════ */}
+                        <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 border-b border-[var(--border-main)]/40">
+                            <div className="flex items-center gap-2">
+                                {/* Stage 1: Tasks */}
+                                <button
+                                    type="button"
+                                    onClick={() => setQcActiveStage('tasks')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                                        qcActiveStage === 'tasks'
+                                            ? 'bg-[var(--brand-lime)] text-[var(--brand-black)] shadow-md shadow-[var(--brand-lime)]/20 scale-102'
+                                            : 'bg-[var(--bg-card)] border border-[var(--border-main)] text-[var(--text-muted)] hover:text-white'
+                                    }`}
+                                >
+                                    <ListChecks size={14} className={qcActiveStage === 'tasks' ? 'stroke-[2.5]' : ''} />
+                                    <span>1. Task Verification & Photos</span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                        qcActiveStage === 'tasks' ? 'bg-black/20 text-black font-bold' : 'bg-white/10 text-white/70'
+                                    }`}>
+                                        {uploadedPhotosCount}/{totalTasksCount}
+                                    </span>
+                                </button>
 
-                            {doableTasks.length === 0 && activeParts.length === 0 ? (
-                                <div className="glass-card p-6 text-center text-xs text-[var(--text-muted)]">
-                                    No active tasks or parts assigned to this work order.
+                                {/* Stage 2: General Parts (if any) */}
+                                {generalParts.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setQcActiveStage('general_parts')}
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                                            qcActiveStage === 'general_parts'
+                                                ? 'bg-[var(--brand-lime)] text-[var(--brand-black)] shadow-md shadow-[var(--brand-lime)]/20 scale-102'
+                                                : 'bg-[var(--bg-card)] border border-[var(--border-main)] text-[var(--text-muted)] hover:text-white'
+                                        }`}
+                                    >
+                                        <Package size={14} className={qcActiveStage === 'general_parts' ? 'stroke-[2.5]' : ''} />
+                                        <span>2. General Materials</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                            qcActiveStage === 'general_parts' ? 'bg-black/20 text-black font-bold' : 'bg-white/10 text-white/70'
+                                        }`}>
+                                            {installedGeneralPartsCount}/{generalParts.length}
+                                        </span>
+                                    </button>
+                                )}
+
+                                {/* Stage 3: Repair Verification Photos */}
+                                <button
+                                    type="button"
+                                    onClick={() => setQcActiveStage('repair_photos')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                                        qcActiveStage === 'repair_photos'
+                                            ? 'bg-[var(--brand-lime)] text-[var(--brand-black)] shadow-md shadow-[var(--brand-lime)]/20 scale-102'
+                                            : 'bg-[var(--bg-card)] border border-[var(--border-main)] text-[var(--text-muted)] hover:text-white'
+                                    }`}
+                                >
+                                    <Camera size={14} className={qcActiveStage === 'repair_photos' ? 'stroke-[2.5]' : ''} />
+                                    <span>{generalParts.length > 0 ? '3.' : '2.'} Repair Verification Photos</span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                        qcActiveStage === 'repair_photos' ? 'bg-black/20 text-black font-bold' : 'bg-white/10 text-white/70'
+                                    }`}>
+                                        {uploadedVehiclePhotosCount}/{vehicleRequiredPhotos.length}
+                                    </span>
+                                </button>
+
+                                {/* Stage 4: QC Summary & Sign-off */}
+                                <button
+                                    type="button"
+                                    onClick={() => setQcActiveStage('summary')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                                        qcActiveStage === 'summary'
+                                            ? 'bg-[var(--brand-lime)] text-[var(--brand-black)] shadow-md shadow-[var(--brand-lime)]/20 scale-102'
+                                            : 'bg-[var(--bg-card)] border border-[var(--border-main)] text-[var(--text-muted)] hover:text-white'
+                                    }`}
+                                >
+                                    <FileCheck2 size={14} className={qcActiveStage === 'summary' ? 'stroke-[2.5]' : ''} />
+                                    <span>{generalParts.length > 0 ? '4.' : '3.'} QC Sign-Off & Review</span>
+                                    {isQcFullyComplete && (
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* View Mode Toggle when in tasks stage */}
+                            {qcActiveStage === 'tasks' && doableTasks.length > 0 && (
+                                <div className="flex items-center bg-black/30 p-1 rounded-xl border border-[var(--border-main)]/40 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setQcViewMode('progressive')}
+                                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            qcViewMode === 'progressive'
+                                                ? 'bg-[var(--brand-lime)] text-black shadow-sm'
+                                                : 'text-[var(--text-muted)] hover:text-white'
+                                        }`}
+                                        title="Step-by-step single task focus"
+                                    >
+                                        <Sparkles size={11} /> Guided Flow
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setQcViewMode('overview')}
+                                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            qcViewMode === 'overview'
+                                                ? 'bg-[var(--brand-lime)] text-black shadow-sm'
+                                                : 'text-[var(--text-muted)] hover:text-white'
+                                        }`}
+                                        title="View all tasks in grid"
+                                    >
+                                        <Layers size={11} /> Overview Grid
+                                    </button>
                                 </div>
-                            ) : (
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                    {doableTasks.map((task) => {
-                                        const photo = wo.photos.find(p => p.caption === `TASK_${task._id}`);
-                                        const isCompleted = task.status === 'COMPLETED';
-                                        const taskParts = activeParts.filter(p => p.taskTemplateId && task.taskTemplateId && p.taskTemplateId.toString() === task.taskTemplateId.toString());
+                            )}
+                        </div>
 
-                                        return (
-                                            <div
-                                                key={task._id}
-                                                className={`glass-card p-0 border transition-all duration-300 flex overflow-hidden ${isCompleted
-                                                        ? 'border-[var(--brand-lime)]/30 bg-gradient-to-br from-[var(--brand-lime-alpha)]/5 via-[var(--brand-lime-alpha)]/1 to-transparent'
-                                                        : 'border-[var(--border-main)]/50'
-                                                    }`}
-                                            >
-                                                {/* Left Side: Content & Parts */}
-                                                <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
-                                                    <div className="flex items-start gap-2.5">
+                        {/* ═══════════════ STAGE 1: TASK VERIFICATION & EVIDENCE ═══════════════ */}
+                        {qcActiveStage === 'tasks' && (
+                            <div className="space-y-4">
+                                {doableTasks.length === 0 ? (
+                                    <div className="glass-card p-8 text-center space-y-3 border border-[var(--border-main)]">
+                                        <div className="w-12 h-12 rounded-full bg-white/5 mx-auto flex items-center justify-center text-[var(--text-dim)]">
+                                            <ListChecks size={22} />
+                                        </div>
+                                        <h4 className="text-sm font-bold text-[var(--text-main)]">No active tasks assigned to this work order</h4>
+                                        <p className="text-xs text-[var(--text-muted)] max-w-sm mx-auto">
+                                            You can directly continue to vehicle repair verification photos.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setQcActiveStage('repair_photos')}
+                                            className="btn-primary text-xs !py-2 !px-4 mt-2"
+                                        >
+                                            Go to Repair Photos <ArrowRight size={13} />
+                                        </button>
+                                    </div>
+                                ) : qcViewMode === 'progressive' ? (
+                                    /* ── PROGRESSIVE MODE: ONE TASK AT A TIME ── */
+                                    <div className="space-y-4">
+                                        {/* Horizontal Task Selector Queue */}
+                                        <div className="glass-card p-2 px-3 border border-[var(--border-main)]/50 rounded-xl flex items-center gap-2 overflow-x-auto scrollbar-none">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-dim)] shrink-0 pl-1">
+                                                Task Queue:
+                                            </span>
+                                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                {doableTasks.map((t, idx) => {
+                                                    const isCompleted = t.status === 'COMPLETED';
+                                                    const photo = wo.photos.find(p => p.caption === `TASK_${t._id}`);
+                                                    const isSelected = idx === safeTaskIndex;
+                                                    const isFullyVerified = isCompleted && !!photo;
+
+                                                    return (
                                                         <button
+                                                            key={t._id}
                                                             type="button"
-                                                            disabled={actionLoading}
-                                                            onClick={() => doAction(() => updateTask(id!, task._id, {
-                                                                status: isCompleted ? 'PENDING' : 'COMPLETED'
-                                                            }))}
-                                                            className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all duration-300 mt-0.5 shrink-0 ${isCompleted
-                                                                    ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black scale-105 shadow-md shadow-[var(--brand-lime)]/20'
-                                                                    : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)] hover:scale-105'
-                                                                }`}
-                                                            title={isCompleted ? "Mark Pending" : "Mark Completed"}
+                                                            onClick={() => setQcCurrentTaskIndex(idx)}
+                                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                                                                isSelected
+                                                                    ? 'bg-[var(--brand-lime-alpha)]/25 text-[var(--brand-lime)] border-2 border-[var(--brand-lime)] shadow-md shadow-[var(--brand-lime)]/10 scale-102'
+                                                                    : isFullyVerified
+                                                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60'
+                                                                    : isCompleted
+                                                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:border-amber-500/60'
+                                                                    : 'bg-white/5 text-[var(--text-muted)] border border-[var(--border-main)]/40 hover:bg-white/10'
+                                                            }`}
                                                         >
-                                                            <CheckCircle2 size={12} className="stroke-[3]" />
-                                                        </button>
-                                                        <div className="min-w-0 select-none">
-                                                            <span
-                                                                onClick={() => doAction(() => updateTask(id!, task._id, {
-                                                                    status: isCompleted ? 'PENDING' : 'COMPLETED'
-                                                                }))}
-                                                                className={`text-xs font-semibold text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors break-words ${isCompleted ? 'line-through text-[var(--text-dim)] font-medium' : ''
-                                                                    }`}
-                                                            >
-                                                                {task.description}
-                                                            </span>
-                                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                                <span className="text-[9px] uppercase tracking-wider text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded font-mono">
-                                                                    {task.category || 'General'}
-                                                                </span>
-                                                                <span className={`text-[9px] font-bold uppercase tracking-wider ${isCompleted ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'
-                                                                    }`}>
-                                                                    {task.status}
-                                                                </span>
+                                                            <div className="flex items-center justify-center">
+                                                                {isFullyVerified ? (
+                                                                    <CheckCircle2 size={13} className="text-emerald-400 stroke-[3]" />
+                                                                ) : isCompleted ? (
+                                                                    <Camera size={13} className="text-amber-400" />
+                                                                ) : (
+                                                                    <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex items-center justify-center text-[9px] font-mono">
+                                                                        {idx + 1}
+                                                                    </span>
+                                                                )}
                                                             </div>
+                                                            <span className="truncate max-w-[140px] text-left">
+                                                                {idx + 1}. {t.description}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* Quick "Next Pending" jumper */}
+                                            {doableTasks.some(t => t.status !== 'COMPLETED' || !wo.photos.some(p => p.caption === `TASK_${t._id}`)) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const nextPendingIdx = doableTasks.findIndex(t => t.status !== 'COMPLETED' || !wo.photos.some(p => p.caption === `TASK_${t._id}`));
+                                                        if (nextPendingIdx !== -1) setQcCurrentTaskIndex(nextPendingIdx);
+                                                    }}
+                                                    className="text-[10px] font-bold text-[var(--brand-lime)] hover:underline shrink-0 px-2 py-1 bg-white/5 rounded-md border border-[var(--brand-lime)]/30 cursor-pointer"
+                                                >
+                                                    Jump to Pending →
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Focused Active Task Workspace Card */}
+                                        {currentTask && (
+                                            <div className="glass-card border border-[var(--border-main)] rounded-2xl overflow-hidden shadow-2xl relative bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg-card)]/80">
+                                                {/* Top Accent Indicator */}
+                                                <div className="w-full h-1.5 bg-white/5">
+                                                    <div
+                                                        className="h-full bg-gradient-to-r from-[var(--brand-lime)] to-emerald-400 transition-all duration-500"
+                                                        style={{ width: `${((safeTaskIndex + 1) / totalTasksCount) * 100}%` }}
+                                                    />
+                                                </div>
+
+                                                {/* Header Bar */}
+                                                <div className="p-4 sm:p-5 border-b border-[var(--border-main)]/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/[0.02]">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="badge badge-lime text-[10px] font-mono px-2 py-0.5 bg-[var(--brand-lime)]/10 text-[var(--brand-lime)] border border-[var(--brand-lime)]/30 font-bold">
+                                                                Task {safeTaskIndex + 1} of {totalTasksCount}
+                                                            </span>
+                                                            <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)] bg-white/5 px-2 py-0.5 rounded border border-white/5 font-mono">
+                                                                {currentTask.category || 'Mechanical'}
+                                                            </span>
+                                                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                                                                currentTaskIsCompleted ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-[var(--text-muted)]'
+                                                            }`}>
+                                                                {currentTask.status}
+                                                            </span>
                                                         </div>
+                                                        <h2 className="text-base sm:text-lg font-black text-white tracking-tight mt-1">
+                                                            {currentTask.description}
+                                                        </h2>
                                                     </div>
 
-                                                    {/* Nested corresponding parts for this task */}
-                                                    {taskParts.length > 0 && (
-                                                        <div className="mt-2.5 pl-3 border-l border-[var(--border-main)]/30 space-y-1.5">
-                                                            <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-dim)]">Required Parts</p>
-                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                                {taskParts.map((part) => {
+                                                    {/* Task Completion Switch */}
+                                                    <button
+                                                        type="button"
+                                                        disabled={actionLoading}
+                                                        onClick={() => doAction(() => updateTask(id!, currentTask._id, {
+                                                            status: currentTaskIsCompleted ? 'PENDING' : 'COMPLETED'
+                                                        }))}
+                                                        className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                                            currentTaskIsCompleted
+                                                                ? 'bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25'
+                                                                : 'bg-[var(--brand-lime)] text-black hover:scale-102 active:scale-98 shadow-lg shadow-[var(--brand-lime)]/20'
+                                                        }`}
+                                                    >
+                                                        {actionLoading ? (
+                                                            <Loader2 size={14} className="animate-spin" />
+                                                        ) : (
+                                                            <CheckCircle2 size={15} className="stroke-[2.5]" />
+                                                        )}
+                                                        {currentTaskIsCompleted ? 'Marked Completed (Click to Revert)' : 'Mark Task Completed'}
+                                                    </button>
+                                                </div>
+
+                                                {/* Content Area: Step 1 (Parts) + Step 2 (Photo Upload) */}
+                                                <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                                    {/* LEFT COLUMN: Step 1 Parts Verification */}
+                                                    <div className="lg:col-span-7 space-y-4">
+                                                        <div className="flex items-center justify-between border-b border-[var(--border-main)]/30 pb-2.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-6 h-6 rounded-md bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                                                                    <Wrench size={12} />
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                                                                        1. Required Parts & Materials
+                                                                    </h4>
+                                                                    <p className="text-[10px] text-[var(--text-dim)]">
+                                                                        Verify and mark pending parts installed before finalizing this task.
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+
+                                                            {currentTaskParts.length > 0 && currentTaskPendingParts.length > 0 && (
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={actionLoading}
+                                                                    onClick={() => handleInstallPartsGroup(currentTaskParts)}
+                                                                    className="text-[10px] font-bold text-[var(--brand-lime)] hover:text-white bg-[var(--brand-lime-alpha)]/20 hover:bg-[var(--brand-lime-alpha)]/40 border border-[var(--brand-lime)]/30 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                                                                >
+                                                                    <CheckCheck size={11} /> Install All ({currentTaskPendingParts.length})
+                                                                </button>
+                                                            )}
+                                                        </div>
+
+                                                        {currentTaskParts.length === 0 ? (
+                                                            <div className="p-4 rounded-xl border border-dashed border-[var(--border-main)]/60 bg-white/[0.01] flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                                                                <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                                                                <span>No replacement parts required for this specific task. Ready to inspect.</span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="space-y-2">
+                                                                {currentTaskParts.map((part) => {
                                                                     const isInstalled = part.status === 'INSTALLED';
 
                                                                     return (
                                                                         <div
                                                                             key={part._id}
-                                                                            className={`flex items-center justify-between gap-3 p-1.5 px-2 rounded-lg border transition-all duration-300 ${
-                                                                                isInstalled 
-                                                                                    ? 'border-[var(--brand-lime)]/20 bg-[var(--brand-lime-alpha)]/2' 
-                                                                                    : 'border-[var(--border-main)]/20 bg-white/[0.01]'
+                                                                            className={`p-3 rounded-xl border transition-all duration-300 flex items-center justify-between gap-3 ${
+                                                                                isInstalled
+                                                                                    ? 'border-emerald-500/30 bg-emerald-500/[0.03]'
+                                                                                    : 'border-orange-500/30 bg-orange-500/[0.03]'
                                                                             }`}
                                                                         >
-                                                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                            <div className="flex items-center gap-3 min-w-0 flex-1">
                                                                                 <button
                                                                                     type="button"
                                                                                     disabled={actionLoading}
                                                                                     onClick={() => doAction(() => updatePart(id!, part._id, {
                                                                                         status: isInstalled ? 'REQUESTED' : 'INSTALLED'
                                                                                     }))}
-                                                                                    className={`w-4 h-4 rounded flex items-center justify-center border transition-all duration-300 shrink-0 ${isInstalled
-                                                                                            ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black'
-                                                                                            : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)]'
-                                                                                        }`}
-                                                                                    title={isInstalled ? "Mark Uninstalled" : "Mark Installed"}
+                                                                                    className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all shrink-0 cursor-pointer ${
+                                                                                        isInstalled
+                                                                                            ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black shadow-sm'
+                                                                                            : 'border-orange-500/40 text-transparent hover:border-[var(--brand-lime)]'
+                                                                                    }`}
+                                                                                    title={isInstalled ? "Click to Mark Pending" : "Click to Mark Installed"}
                                                                                 >
-                                                                                    <CheckCircle2 size={8} className="stroke-[3]" />
+                                                                                    <Check size={12} className="stroke-[3]" />
                                                                                 </button>
+
                                                                                 <div className="min-w-0 select-none">
                                                                                     <span
                                                                                         onClick={() => doAction(() => updatePart(id!, part._id, {
                                                                                             status: isInstalled ? 'REQUESTED' : 'INSTALLED'
                                                                                         }))}
-                                                                                        className={`text-xs font-medium text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors truncate block ${isInstalled ? 'line-through text-[var(--text-dim)]' : ''}`}
-                                                                                        title={part.partName}
+                                                                                        className={`text-xs font-semibold cursor-pointer hover:text-[var(--brand-lime)] transition-colors truncate block ${
+                                                                                            isInstalled ? 'line-through text-[var(--text-dim)]' : 'text-white'
+                                                                                        }`}
                                                                                     >
                                                                                         {part.partName}
                                                                                     </span>
+                                                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                                                        <span className="text-[10px] text-[var(--text-dim)] font-mono">
+                                                                                            Qty: {part.quantity}
+                                                                                        </span>
+                                                                                        {part.partNumber && (
+                                                                                            <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.2 rounded font-mono">
+                                                                                                #{part.partNumber}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
-                                                                            <div className="flex items-center gap-1.5 shrink-0 font-mono">
-                                                                                <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded">
-                                                                                    Qty: {part.quantity}
-                                                                                </span>
-                                                                                <span className={`text-[9px] font-bold uppercase ${isInstalled ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
-                                                                                    {part.status === 'REQUESTED' ? 'REQ' : part.status === 'RESERVED' ? 'ASSIGNED' : part.status}
-                                                                                </span>
-                                                                            </div>
+
+                                                                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded font-mono shrink-0 ${
+                                                                                isInstalled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-orange-500/15 text-orange-400 animate-pulse'
+                                                                            }`}>
+                                                                                {isInstalled ? 'INSTALLED' : 'PENDING'}
+                                                                            </span>
                                                                         </div>
                                                                     );
                                                                 })}
+
+                                                                {currentTaskAllPartsInstalled ? (
+                                                                    <div className="p-2 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold flex items-center gap-2">
+                                                                        <CheckCircle2 size={13} className="shrink-0" />
+                                                                        All parts installed for this task.
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="p-2 px-3 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[11px] font-bold flex items-center gap-2">
+                                                                        <AlertCircle size={13} className="shrink-0" />
+                                                                        {currentTaskPendingParts.length} part(s) pending install. Click checkbox or "Install All".
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* RIGHT COLUMN: Step 2 Photo Proof Upload */}
+                                                    <div className="lg:col-span-5 space-y-4">
+                                                        <div className="border-b border-[var(--border-main)]/30 pb-2.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-6 h-6 rounded-md bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                                                                    <Camera size={12} />
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                                                                        2. Task Verification Photo
+                                                                    </h4>
+                                                                    <p className="text-[10px] text-[var(--text-dim)]">
+                                                                        Capture photo proof showing completed repair work for this task.
+                                                                    </p>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    )}
-                                                </div>
 
-                                                {/* Right Side: Image / Upload Panel stretching full height */}
-                                                <div className="w-28 flex-shrink-0 border-l border-[var(--border-main)]/20 flex flex-col justify-stretch items-stretch bg-[var(--bg-card)]/30">
-                                                    {isCompleted ? (
-                                                        photo ? (
-                                                            <div className="relative w-full h-full group/photo overflow-hidden">
-                                                                <img src={photo.url} alt="Task verification" className="w-full h-full object-cover transition-transform duration-300 group-hover/photo:scale-105" />
-                                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
-                                                                    {isReleasedOrLater ? (
-                                                                        <>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                                className="w-7 h-7 rounded-lg bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 hover:scale-110 active:scale-95 cursor-pointer shadow-md shadow-blue-500/25"
-                                                                                title="Change Photo (Camera)"
-                                                                                disabled={actionLoading}
-                                                                            >
-                                                                                <Camera size={11} className="stroke-[2.5]" />
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                                className="w-7 h-7 rounded-lg bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 hover:scale-110 active:scale-95 cursor-pointer shadow-md shadow-orange-500/25"
-                                                                                title="Change Photo (Upload)"
-                                                                                disabled={actionLoading}
-                                                                            >
-                                                                                <Upload size={11} className="stroke-[2.5]" />
-                                                                            </button>
-                                                                        </>
-                                                                    ) : (
+                                                        {/* Photo Container */}
+                                                        {currentTaskPhoto ? (
+                                                            /* Photo already uploaded */
+                                                            <div className="glass-card aspect-[16/11] rounded-2xl overflow-hidden border border-emerald-500/40 relative group shadow-lg">
+                                                                <img
+                                                                    src={currentTaskPhoto.url}
+                                                                    alt="Task QC Proof"
+                                                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                                />
+                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-between p-3">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="badge badge-lime text-[9px] bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 font-bold font-mono">
+                                                                            ✓ QC Photo Attached
+                                                                        </span>
                                                                         <button
                                                                             type="button"
-                                                                            className="w-7 h-7 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover/photo:scale-100 hover:scale-110 active:scale-95 cursor-pointer"
-                                                                            title="Delete Photo"
-                                                                            disabled={actionLoading}
+                                                                            onClick={() => setPreviewPhoto({ url: currentTaskPhoto.url, caption: currentTask.description, stage: 'QC Task Proof' })}
+                                                                            className="w-7 h-7 rounded-lg bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all cursor-pointer"
+                                                                            title="View Fullscreen"
+                                                                        >
+                                                                            <Maximize2 size={13} />
+                                                                        </button>
+                                                                    </div>
+
+                                                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                                                                        <div className="text-[9px] text-white/70 font-mono">
+                                                                            {currentTaskPhoto.uploadedAt ? new Date(currentTaskPhoto.uploadedAt).toLocaleTimeString() : 'Verified'}
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={actionLoading}
+                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}` })}
+                                                                                className="px-2 py-1 rounded-md bg-blue-500/80 hover:bg-blue-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                                title="Retake photo"
+                                                                            >
+                                                                                <Camera size={11} /> Retake
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={actionLoading}
+                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}` })}
+                                                                                className="px-2 py-1 rounded-md bg-orange-500/80 hover:bg-orange-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                                title="Upload different photo"
+                                                                            >
+                                                                                <Upload size={11} /> Change
+                                                                            </button>
+                                                                            {!isReleasedOrLater && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={actionLoading}
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault();
+                                                                                        if (window.confirm("Delete this verification photo?")) {
+                                                                                            doAction(() => removePhoto(id!, currentTaskPhoto._id));
+                                                                                        }
+                                                                                    }}
+                                                                                    className="w-6 h-6 rounded-md bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer"
+                                                                                    title="Delete Photo"
+                                                                                >
+                                                                                    <Trash2 size={11} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            /* Photo missing: capture card */
+                                                            <div className="aspect-[16/11] rounded-2xl border-2 border-dashed border-amber-500/30 bg-gradient-to-b from-amber-500/5 to-transparent p-5 flex flex-col items-center justify-center text-center space-y-3 relative group hover:border-amber-500/50 transition-all">
+                                                                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shadow-md">
+                                                                    <Camera size={22} className="animate-pulse" />
+                                                                </div>
+                                                                <div className="space-y-0.5">
+                                                                    <p className="text-xs font-extrabold text-amber-300 uppercase tracking-wide">
+                                                                        Photo Evidence Required
+                                                                    </p>
+                                                                    <p className="text-[10px] text-[var(--text-muted)] max-w-xs">
+                                                                        Take or upload a clear photo of the inspected/repaired work for verification approval.
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="flex gap-2 w-full max-w-xs mt-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={actionLoading}
+                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}` })}
+                                                                        className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+                                                                    >
+                                                                        <Camera size={13} className="stroke-[2.5]" /> Camera
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={actionLoading}
+                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}` })}
+                                                                        className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+                                                                    >
+                                                                        <Upload size={13} className="stroke-[2.5]" /> Upload
+                                                                    </button>
+                                                                </div>
+
+                                                                {!currentTaskIsCompleted && (
+                                                                    <span className="text-[9px] text-amber-400/80 italic">
+                                                                        Note: Task is still marked Pending. Remember to mark it Completed once verified.
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Bottom Task Navigation Footer */}
+                                                <div className="p-4 bg-black/40 border-t border-[var(--border-main)]/50 flex items-center justify-between gap-3">
+                                                    <button
+                                                        type="button"
+                                                        disabled={safeTaskIndex === 0}
+                                                        onClick={() => setQcCurrentTaskIndex(Math.max(0, safeTaskIndex - 1))}
+                                                        className={`btn-secondary !py-2 !px-4 text-xs font-bold flex items-center gap-1.5 ${
+                                                            safeTaskIndex === 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                                                        }`}
+                                                    >
+                                                        <ChevronLeft size={14} /> Previous Task
+                                                    </button>
+
+                                                    <div className="text-xs font-mono font-bold text-[var(--text-dim)] hidden sm:block">
+                                                        Task {safeTaskIndex + 1} of {totalTasksCount}
+                                                    </div>
+
+                                                    {safeTaskIndex < totalTasksCount - 1 ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setQcCurrentTaskIndex(safeTaskIndex + 1)}
+                                                            className={`text-xs font-black flex items-center gap-1.5 py-2 px-5 rounded-xl transition-all cursor-pointer ${
+                                                                currentTaskIsCompleted && !!currentTaskPhoto
+                                                                    ? 'btn-primary shadow-lg shadow-[var(--brand-lime)]/20'
+                                                                    : 'btn-secondary'
+                                                            }`}
+                                                        >
+                                                            Next Task <ChevronRight size={14} />
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setQcActiveStage(generalParts.length > 0 ? 'general_parts' : 'repair_photos')}
+                                                            className="btn-primary !py-2 !px-5 text-xs font-black flex items-center gap-1.5 shadow-lg shadow-[var(--brand-lime)]/20 cursor-pointer"
+                                                        >
+                                                            Proceed to Next Step <ArrowRight size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    /* ── OVERVIEW GRID MODE (ALL TASKS) ── */
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {doableTasks.map((task, tIndex) => {
+                                                const photo = wo.photos.find(p => p.caption === `TASK_${task._id}`);
+                                                const isCompleted = task.status === 'COMPLETED';
+                                                const taskParts = activeParts.filter(p => p.taskTemplateId && task.taskTemplateId && p.taskTemplateId.toString() === task.taskTemplateId.toString());
+                                                const isFullyDone = isCompleted && !!photo;
+
+                                                return (
+                                                    <div
+                                                        key={task._id}
+                                                        className={`glass-card p-4 border rounded-2xl space-y-3.5 transition-all duration-300 relative ${
+                                                            isFullyDone
+                                                                ? 'border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.04] to-transparent'
+                                                                : isCompleted
+                                                                ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/[0.04] to-transparent'
+                                                                : 'border-[var(--border-main)]/60'
+                                                        }`}
+                                                    >
+                                                        {/* Task Card Header */}
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div className="flex items-start gap-2.5 min-w-0">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={actionLoading}
+                                                                    onClick={() => doAction(() => updateTask(id!, task._id, {
+                                                                        status: isCompleted ? 'PENDING' : 'COMPLETED'
+                                                                    }))}
+                                                                    className={`w-6 h-6 rounded-lg flex items-center justify-center border-2 transition-all shrink-0 mt-0.5 cursor-pointer ${
+                                                                        isCompleted
+                                                                            ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black'
+                                                                            : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)]'
+                                                                    }`}
+                                                                    title={isCompleted ? "Mark Pending" : "Mark Completed"}
+                                                                >
+                                                                    <CheckCircle2 size={12} className="stroke-[3]" />
+                                                                </button>
+                                                                <div className="min-w-0">
+                                                                    <span className="text-xs font-bold text-white block truncate">
+                                                                        {tIndex + 1}. {task.description}
+                                                                    </span>
+                                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                                        <span className="text-[9px] uppercase font-mono text-[var(--text-dim)] bg-white/5 px-1.5 py-0.2 rounded">
+                                                                            {task.category || 'General'}
+                                                                        </span>
+                                                                        <span className={`text-[9px] font-bold uppercase ${isCompleted ? 'text-[var(--brand-lime)]' : 'text-[var(--text-dim)]'}`}>
+                                                                            {task.status}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setQcCurrentTaskIndex(tIndex);
+                                                                    setQcViewMode('progressive');
+                                                                }}
+                                                                className="text-[10px] font-bold text-[var(--brand-lime)] hover:underline shrink-0 bg-white/5 px-2 py-1 rounded-md border border-[var(--brand-lime)]/20 cursor-pointer"
+                                                            >
+                                                                Focus →
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Parts nested inside overview card */}
+                                                        {taskParts.length > 0 && (
+                                                            <div className="pl-3 border-l-2 border-[var(--border-main)]/50 space-y-1.5">
+                                                                <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--text-dim)]">
+                                                                    <span>Parts ({taskParts.filter(p => p.status === 'INSTALLED').length}/{taskParts.length})</span>
+                                                                    {taskParts.some(p => p.status !== 'INSTALLED') && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleInstallPartsGroup(taskParts)}
+                                                                            className="text-[9px] font-bold text-[var(--brand-lime)] hover:underline cursor-pointer"
+                                                                        >
+                                                                            Install All
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    {taskParts.map((part) => {
+                                                                        const isInstalled = part.status === 'INSTALLED';
+                                                                        return (
+                                                                            <div key={part._id} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white/[0.02] border border-white/5">
+                                                                                <div className="flex items-center gap-2 truncate flex-1">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => doAction(() => updatePart(id!, part._id, { status: isInstalled ? 'REQUESTED' : 'INSTALLED' }))}
+                                                                                        className={`w-4 h-4 rounded flex items-center justify-center border text-[9px] ${
+                                                                                            isInstalled ? 'bg-[var(--brand-lime)] text-black border-[var(--brand-lime)]' : 'border-white/20'
+                                                                                        }`}
+                                                                                    >
+                                                                                        {isInstalled && <Check size={10} className="stroke-[3]" />}
+                                                                                    </button>
+                                                                                    <span className={`truncate text-[11px] ${isInstalled ? 'line-through text-white/50' : 'text-white'}`}>
+                                                                                        {part.partName}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <span className={`text-[9px] font-mono font-bold ${isInstalled ? 'text-emerald-400' : 'text-orange-400'}`}>
+                                                                                    {isInstalled ? 'INSTALLED' : 'PENDING'}
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Task Photo in Overview Card */}
+                                                        <div className="pt-2 border-t border-[var(--border-main)]/30 flex items-center justify-between gap-2">
+                                                            {photo ? (
+                                                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                    <img
+                                                                        src={photo.url}
+                                                                        alt="Proof"
+                                                                        onClick={() => setPreviewPhoto({ url: photo.url, caption: task.description, stage: 'QC Task Proof' })}
+                                                                        className="w-10 h-10 rounded-lg object-cover border border-emerald-500/40 cursor-zoom-in"
+                                                                    />
+                                                                    <div className="truncate">
+                                                                        <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                                                                            <CheckCircle2 size={11} /> Photo Verified
+                                                                        </span>
+                                                                        <span className="text-[9px] text-[var(--text-dim)] font-mono block">Click to enlarge</span>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400">
+                                                                    <Camera size={13} /> Photo Missing
+                                                                </div>
+                                                            )}
+
+                                                            <div className="flex gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
+                                                                    className="p-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white transition-colors cursor-pointer"
+                                                                    title="Camera"
+                                                                >
+                                                                    <Camera size={12} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
+                                                                    className="p-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500 text-orange-300 hover:text-white transition-colors cursor-pointer"
+                                                                    title="Upload"
+                                                                >
+                                                                    <Upload size={12} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ═══════════════ STAGE 2: GENERAL MATERIALS & PARTS ═══════════════ */}
+                        {qcActiveStage === 'general_parts' && (
+                            <div className="glass-card p-5 border border-[var(--border-main)] rounded-2xl space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-main)]/40 pb-3">
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-2">
+                                            <Package size={16} className="text-[var(--brand-lime)]" />
+                                            <h3 className="text-sm font-bold text-white">General Parts & Workshop Supplies</h3>
+                                        </div>
+                                        <p className="text-xs text-[var(--text-dim)]">
+                                            These items are not tied to a specific task template. Mark all as installed to proceed.
+                                        </p>
+                                    </div>
+
+                                    {generalParts.some(p => p.status !== 'INSTALLED') && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleInstallPartsGroup(generalParts)}
+                                            className="btn-primary !py-2 !px-4 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-[var(--brand-lime)]/20 cursor-pointer"
+                                        >
+                                            <CheckCheck size={13} /> Install All General Parts
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {generalParts.map((part) => {
+                                        const isInstalled = part.status === 'INSTALLED';
+
+                                        return (
+                                            <div
+                                                key={part._id}
+                                                className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-all ${
+                                                    isInstalled ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : 'border-orange-500/30 bg-orange-500/[0.02]'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => doAction(() => updatePart(id!, part._id, { status: isInstalled ? 'REQUESTED' : 'INSTALLED' }))}
+                                                        className={`w-5 h-5 rounded-md flex items-center justify-center border text-[10px] cursor-pointer ${
+                                                            isInstalled ? 'bg-[var(--brand-lime)] text-black border-[var(--brand-lime)]' : 'border-white/20'
+                                                        }`}
+                                                    >
+                                                        {isInstalled && <Check size={11} className="stroke-[3]" />}
+                                                    </button>
+                                                    <div className="min-w-0">
+                                                        <span className={`text-xs font-bold truncate block ${isInstalled ? 'line-through text-white/50' : 'text-white'}`}>
+                                                            {part.partName}
+                                                        </span>
+                                                        <span className="text-[10px] text-[var(--text-dim)] font-mono">Qty: {part.quantity}</span>
+                                                    </div>
+                                                </div>
+                                                <span className={`text-[10px] font-bold font-mono uppercase px-2 py-0.5 rounded ${
+                                                    isInstalled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-orange-500/20 text-orange-400'
+                                                }`}>
+                                                    {isInstalled ? 'INSTALLED' : 'PENDING'}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="pt-3 border-t border-[var(--border-main)]/30 flex justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={() => setQcActiveStage('repair_photos')}
+                                        className="btn-primary !py-2 !px-5 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        Proceed to Repair Photos <ArrowRight size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ═══════════════ STAGE 3: REPAIR VERIFICATION PHOTOS ═══════════════ */}
+                        {qcActiveStage === 'repair_photos' && (
+                            <div className="space-y-6">
+                                <div className="glass-card p-5 border border-[var(--border-main)] rounded-2xl space-y-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-main)]/40 pb-3">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <Camera size={18} className="text-[var(--brand-lime)]" />
+                                                <h3 className="text-base font-bold text-white">Repair Verification Photos</h3>
+                                            </div>
+                                            <p className="text-xs text-[var(--text-dim)] mt-0.5">
+                                                Capture vehicle condition and repair verification photos (Front, Rear, Replaced Components, Engine, Interior).
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-xl border border-[var(--border-main)] font-mono text-xs font-bold text-[var(--brand-lime)]">
+                                            <Camera size={13} />
+                                            {uploadedVehiclePhotosCount} of {vehicleRequiredPhotos.length} Uploaded
+                                        </div>
+                                    </div>
+
+                                    {/* Grid of Required Angle Photos */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+                                        {vehicleRequiredPhotos.map((rp) => {
+                                            const photo = wo.photos.find(p => p.caption === rp.label);
+
+                                            return (
+                                                <div key={rp.label} className="relative group">
+                                                    {photo ? (
+                                                        <div className="glass-card aspect-[4/3] rounded-2xl overflow-hidden border border-emerald-500/40 relative hover:border-[var(--brand-lime)] transition-all shadow-md group">
+                                                            <img
+                                                                src={photo.url}
+                                                                alt={rp.label}
+                                                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                            />
+                                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-between p-2">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="badge badge-lime text-[8px] bg-black/70 backdrop-blur-md text-[var(--brand-lime)] border border-[var(--brand-lime)]/40 font-mono">
+                                                                        {rp.label}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setPreviewPhoto({ url: photo.url, caption: rp.label, stage: 'Vehicle Verification' })}
+                                                                        className="w-6 h-6 rounded-md bg-black/70 text-white flex items-center justify-center cursor-pointer hover:bg-black"
+                                                                        title="View Fullscreen"
+                                                                    >
+                                                                        <Maximize2 size={11} />
+                                                                    </button>
+                                                                </div>
+
+                                                                <div className="flex items-center justify-end gap-1 pt-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                                        className="p-1 rounded bg-blue-500/80 hover:bg-blue-600 text-white cursor-pointer"
+                                                                        title="Retake (Camera)"
+                                                                    >
+                                                                        <Camera size={10} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
+                                                                        className="p-1 rounded bg-orange-500/80 hover:bg-orange-600 text-white cursor-pointer"
+                                                                        title="Replace (Upload)"
+                                                                    >
+                                                                        <Upload size={10} />
+                                                                    </button>
+                                                                    {!isReleasedOrLater && (
+                                                                        <button
+                                                                            type="button"
                                                                             onClick={(e) => {
                                                                                 e.preventDefault();
-                                                                                if (window.confirm("Permanently delete this verification photo?")) {
+                                                                                if (window.confirm(`Delete photo for ${rp.label}?`)) {
                                                                                     doAction(() => removePhoto(id!, photo._id));
                                                                                 }
                                                                             }}
+                                                                            className="p-1 rounded bg-red-500/80 hover:bg-red-600 text-white cursor-pointer"
+                                                                            title="Delete"
                                                                         >
-                                                                            <Trash2 size={11} className="stroke-[2.5]" />
+                                                                            <Trash2 size={10} />
                                                                         </button>
                                                                     )}
                                                                 </div>
                                                             </div>
-                                                        ) : (
-                                                            <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2 bg-gradient-to-b from-orange-500/5 to-amber-500/5 hover:from-orange-500/10 hover:to-amber-500/10 transition-all duration-300 group shadow-[inset_0_1px_2px_rgba(249,115,22,0.05)] border-l border-dashed border-orange-500/20">
-                                                                <div className="flex flex-col items-center gap-0.5 select-none text-center">
-                                                                    <span className="text-[8px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1">
-                                                                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shrink-0" />
-                                                                        QC Req
-                                                                    </span>
-                                                                    <span className="text-[7px] font-medium text-[var(--text-dim)]">Photo</span>
-                                                                </div>
-                                                                <div className="flex gap-1.5">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                        className="w-7 h-7 rounded-lg border border-orange-500/30 bg-orange-500/10 text-orange-400 hover:bg-orange-500 hover:text-white hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center cursor-pointer shadow-sm"
-                                                                        title="Take Photo"
-                                                                        disabled={actionLoading}
-                                                                    >
-                                                                        <Camera size={11} className="stroke-[2.5]" />
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                        className="w-7 h-7 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-400 hover:to-amber-400 hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center cursor-pointer shadow-md shadow-orange-500/20"
-                                                                        title="Upload Photo"
-                                                                        disabled={actionLoading}
-                                                                    >
-                                                                        <Upload size={11} className="stroke-[2.5]" />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        )
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center p-2 text-center text-[9px] text-[var(--text-dim)] italic bg-black/5 select-none leading-tight">
-                                                            Pending Task
                                                         </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-
-                                    {/* General Parts Section (for parts not linked to any task) */}
-                                    {activeParts.filter(p => !p.taskTemplateId || !doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString())).length > 0 && (
-                                        <div className="space-y-3 pt-4 border-t border-[var(--border-main)]/30">
-                                            <div className="space-y-0.5">
-                                                <h3 className="text-xs font-semibold text-[var(--text-main)]">General Parts & Materials</h3>
-                                                <p className="text-[10px] text-[var(--text-dim)]">Mark general parts as Installed.</p>
-                                            </div>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                {activeParts
-                                                    .filter(p => !p.taskTemplateId || !doableTasks.some(t => t.taskTemplateId && p.taskTemplateId && t.taskTemplateId.toString() === p.taskTemplateId.toString()))
-                                                    .map((part) => {
-                                                        const isInstalled = part.status === 'INSTALLED';
-
-                                                        return (
-                                                            <div
-                                                                key={part._id}
-                                                                className={`flex items-center justify-between gap-3 p-2 rounded-lg border transition-all duration-300 ${isInstalled
-                                                                        ? 'border-[var(--brand-lime)]/20 bg-[var(--brand-lime-alpha)]/2'
-                                                                        : 'border-[var(--border-main)]/20 bg-white/[0.01]'
-                                                                    }`}
-                                                            >
-                                                                <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={actionLoading}
-                                                                        onClick={() => doAction(() => updatePart(id!, part._id, {
-                                                                            status: isInstalled ? 'REQUESTED' : 'INSTALLED'
-                                                                        }))}
-                                                                        className={`w-4 h-4 rounded flex items-center justify-center border transition-all duration-300 shrink-0 ${isInstalled
-                                                                                ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black'
-                                                                                : 'border-[var(--border-main)] text-transparent hover:border-[var(--brand-lime)]'
-                                                                            }`}
-                                                                        title={isInstalled ? "Mark Uninstalled" : "Mark Installed"}
-                                                                    >
-                                                                        <CheckCircle2 size={8} className="stroke-[3]" />
-                                                                    </button>
-                                                                    <div className="min-w-0 select-none">
-                                                                        <span
-                                                                            onClick={() => doAction(() => updatePart(id!, part._id, {
-                                                                                status: isInstalled ? 'REQUESTED' : 'INSTALLED'
-                                                                            }))}
-                                                                            className={`text-xs font-medium text-[var(--text-main)] cursor-pointer hover:text-[var(--brand-lime)] transition-colors truncate block ${isInstalled ? 'line-through text-[var(--text-dim)]' : ''}`}
-                                                                            title={part.partName}
-                                                                        >
-                                                                            {part.partName}
-                                                                        </span>
-                                                                    </div>
+                                                    ) : (
+                                                        <div className="aspect-[4/3] rounded-2xl border-2 border-dashed border-[var(--border-main)]/60 hover:border-[var(--brand-lime)]/50 bg-white/[0.01] p-3 flex flex-col items-center justify-between text-center transition-all group">
+                                                            <div className="flex flex-col items-center mt-1">
+                                                                <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-[var(--text-dim)] group-hover:text-[var(--brand-lime)] transition-colors mb-1">
+                                                                    <Camera size={14} />
                                                                 </div>
-                                                                <div className="flex items-center gap-1.5 shrink-0 font-mono">
-                                                                    <span className="text-[9px] text-[var(--text-dim)] bg-white/5 px-1.5 py-0.5 rounded">
-                                                                        Qty: {part.quantity}
-                                                                    </span>
-                                                                    <span className={`text-[9px] font-bold uppercase ${isInstalled ? 'text-[var(--brand-lime)]' : 'text-orange-400'}`}>
-                                                                        {part.status === 'REQUESTED' ? 'REQ' : part.status === 'RESERVED' ? 'ASSIGNED' : part.status}
-                                                                    </span>
-                                                                </div>
+                                                                <span className="text-[11px] font-bold text-white truncate max-w-[120px]">
+                                                                    {rp.label}
+                                                                </span>
+                                                                <span className="text-[8px] uppercase tracking-wider text-[var(--text-dim)] font-mono">
+                                                                    Verification Slot
+                                                                </span>
                                                             </div>
-                                                        );
-                                                    })}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
 
-                        {/* Photos Section */}
-                        <div className="space-y-6 pt-6 border-t border-[var(--border-main)]/30">
-                            <div className="flex items-center justify-between">
-                                <div className="space-y-1">
-                                    <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>Repair Verification Photos</h3>
-                                    <p className="text-xs text-[var(--text-dim)]">Upload verification photos for the vehicle (optional).</p>
-                                </div>
-                                <div className="p-2 px-3 rounded-xl border border-[var(--border-main)] flex items-center gap-2 bg-[var(--bg-card)]">
-                                    <div className="flex items-center gap-1.5">
-                                        <Camera size={14} className="text-[var(--text-dim)]" />
-                                        <span className="text-xs font-mono font-bold text-[var(--text-main)]">
-                                            {wo.photos.filter(p => (wo.requiredPhotos || []).some(rp => rp.label === p.caption)).length} / {(wo.requiredPhotos || []).length}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                                {(wo.requiredPhotos || []).map((rp) => {
-                                    const photo = wo.photos.find(p => p.caption === rp.label);
-                                    return (
-                                        <div key={rp.label} className="relative group">
-                                            {photo ? (
-                                                <div className="glass-card aspect-[1.3/1] rounded-xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all duration-300 relative">
-                                                    <img src={photo.url} alt={rp.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                    <div className="absolute bottom-2 left-2 flex flex-col opacity-0 group-hover:opacity-100 transition-all transform translate-y-1 group-hover:translate-y-0">
-                                                        <span className="text-[8px] font-bold text-white uppercase tracking-widest">{photo.stage || 'Repair'}</span>
-                                                        <span className="text-[7px] text-white/70 font-mono italic">{new Date(photo.uploadedAt || '').toLocaleDateString()}</span>
-                                                    </div>
-                                                    <div className="absolute top-2 right-2 flex gap-1">
-                                                        <div className="badge badge-lime text-[8px] px-1.5 py-0 bg-black/55 backdrop-blur-sm border-[var(--brand-lime)]/50 text-[var(--brand-lime)] font-mono">{rp.label}</div>
-                                                        {isReleasedOrLater ? (
-                                                            <>
+                                                            <div className="flex gap-1.5 w-full mt-2">
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
-                                                                    className="w-5 h-5 rounded-md bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white cursor-pointer"
-                                                                    title="Change Photo (Camera)"
-                                                                    disabled={actionLoading}
+                                                                    className="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500 hover:text-white transition-all flex items-center justify-center gap-1 cursor-pointer"
                                                                 >
-                                                                    <Camera size={10} />
+                                                                    <Camera size={10} /> Cam
                                                                 </button>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
-                                                                    className="w-5 h-5 rounded-md bg-orange-500 hover:bg-orange-600 flex items-center justify-center text-white cursor-pointer"
-                                                                    title="Change Photo (Upload)"
-                                                                    disabled={actionLoading}
+                                                                    className="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg bg-orange-500/20 text-orange-300 hover:bg-orange-500 hover:text-white transition-all flex items-center justify-center gap-1 cursor-pointer"
                                                                 >
-                                                                    <Upload size={10} />
+                                                                    <Upload size={10} /> Upload
                                                                 </button>
-                                                            </>
-                                                        ) : (
-                                                            <button
-                                                                className="w-5 h-5 rounded-md bg-red-500/80 hover:bg-red-600 flex items-center justify-center text-white transition-colors"
-                                                                title="Remove Photo"
-                                                                disabled={actionLoading}
-                                                                onClick={(e) => {
-                                                                    e.preventDefault();
-                                                                    if (window.confirm("Are you sure you want to remove this photo?")) {
-                                                                        doAction(() => removePhoto(id!, photo._id));
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <Trash2 size={12} />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col items-center justify-between aspect-[1.3/1] rounded-xl border border-dashed border-[var(--border-main)] hover:border-[var(--brand-lime)]/50 transition-all duration-300 group shadow-sm bg-[var(--bg-card)]/50 relative p-2">
-                                                    <div className="flex flex-col items-center text-center mt-1">
-                                                        <Camera size={14} className="text-[var(--text-dim)] mb-1" />
-                                                        <span className="text-[10px] font-bold text-[var(--text-main)] truncate max-w-[120px]">{rp.label}</span>
-                                                        <span className="text-[8px] font-bold text-[var(--text-dim)] uppercase tracking-widest mt-0.5">Optional</span>
-                                                    </div>
-                                                    <div className="flex gap-1.5 w-full mt-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => triggerCamera({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
-                                                            className="btn-secondary flex-1 h-6 text-[9px] font-bold flex items-center justify-center gap-0.5 rounded-md border border-[var(--border-main)] hover:bg-white/5 cursor-pointer"
-                                                            disabled={actionLoading}
-                                                        >
-                                                            <Camera size={10} /> Camera
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => triggerUpload({ stage: rp.stage || 'IN_PROGRESS', label: rp.label })}
-                                                            className="btn-primary flex-1 h-6 text-[9px] font-bold flex items-center justify-center gap-0.5 rounded-md cursor-pointer"
-                                                            disabled={actionLoading}
-                                                        >
-                                                            <Upload size={10} /> Upload
-                                                        </button>
-                                                    </div>
-                                                    {actionLoading && (
-                                                        <div className="absolute inset-0 bg-[var(--bg-card)]/80 backdrop-blur-sm rounded-xl flex items-center justify-center z-20">
-                                                            <Loader2 size={16} className="animate-spin text-[var(--brand-lime)]" />
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Additional Reference Photos */}
+                                <div className="glass-card p-5 border border-[var(--border-main)] rounded-2xl space-y-4">
+                                    <div className="flex items-center justify-between border-b border-[var(--border-main)]/40 pb-3">
+                                        <div>
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-white">Additional Reference Photos</h4>
+                                            <p className="text-[10px] text-[var(--text-dim)]">Attach any extra angles, defect reports, or job proofs.</p>
                                         </div>
-                                    );
-                                })}
-                            </div>
 
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handleFileChange}
-                            />
-                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => triggerCamera({ stage: 'IN_PROGRESS', label: '' })}
+                                                className="btn-secondary !py-1.5 !px-3 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                            >
+                                                <Camera size={12} /> Take Photo
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => triggerUpload({ stage: 'IN_PROGRESS', label: '' })}
+                                                className="btn-primary !py-1.5 !px-3 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                            >
+                                                <Upload size={12} /> Add More
+                                            </button>
+                                        </div>
+                                    </div>
 
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                                        {wo.photos.filter(p => !vehicleRequiredPhotos.some(rp => rp.label === p.caption) && !doableTasks.some(t => p.caption === `TASK_${t._id}`)).map((p) => (
+                                            <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all">
+                                                <img
+                                                    src={p.url}
+                                                    alt="Extra"
+                                                    onClick={() => setPreviewPhoto({ url: p.url, caption: p.caption || 'Reference Photo', stage: p.stage || 'Extra' })}
+                                                    className="w-full h-full object-cover cursor-zoom-in"
+                                                />
+                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPreviewPhoto({ url: p.url, caption: p.caption || 'Reference Photo', stage: p.stage || 'Extra' })}
+                                                        className="w-7 h-7 rounded-lg bg-white/20 text-white flex items-center justify-center cursor-pointer"
+                                                    >
+                                                        <Maximize2 size={12} />
+                                                    </button>
+                                                    {!isReleasedOrLater && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                if (window.confirm("Permanently delete this photo?")) {
+                                                                    doAction(() => removePhoto(id!, p._id));
+                                                                }
+                                                            }}
+                                                            className="w-7 h-7 rounded-lg bg-red-500 text-white flex items-center justify-center cursor-pointer"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
 
-                        {/* Additional Photos Section */}
-                        <div className="pt-6 border-t border-[var(--border-main)]">
-                            <div className="flex items-center justify-between mb-4">
-                                <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-dim)]">Additional Reference Photos</h4>
-                                <div className="flex gap-3">
+                                {/* Footer navigation */}
+                                <div className="flex items-center justify-between pt-2">
                                     <button
                                         type="button"
-                                        onClick={() => triggerCamera({ stage: 'IN_PROGRESS', label: '' })}
-                                        className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
+                                        onClick={() => setQcActiveStage('tasks')}
+                                        className="btn-secondary !py-2 !px-4 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                                     >
-                                        <Camera size={12} /> Take Photo
+                                        <ChevronLeft size={14} /> Back to Tasks
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => triggerUpload({ stage: 'IN_PROGRESS', label: '' })}
-                                        className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)] hover:underline cursor-pointer bg-transparent border-0"
+                                        onClick={() => setQcActiveStage('summary')}
+                                        className="btn-primary !py-2 !px-5 text-xs font-black flex items-center gap-1.5 cursor-pointer"
                                     >
-                                        <PlusCircle size={12} /> Add More
+                                        Review QC Sign-Off <ArrowRight size={14} />
                                     </button>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                                {wo.photos.filter(p => !(wo.requiredPhotos || []).some(rp => rp.label === p.caption)).map((p) => (
-                                    <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all cursor-zoom-in">
-                                        <img src={p.url} alt="Extra" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {!isReleasedOrLater && (
-                                                <button
-                                                    className="w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform scale-75 group-hover:scale-100"
-                                                    title="Delete Photo"
-                                                    disabled={actionLoading}
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        if (window.confirm("Permanently delete this photo?")) {
-                                                            doAction(() => removePhoto(id!, p._id));
-                                                        }
-                                                    }}
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
+                        )}
+
+                        {/* ═══════════════ STAGE 4: QC SIGN-OFF & SUMMARY ═══════════════ */}
+                        {qcActiveStage === 'summary' && (
+                            <div className="glass-card p-6 border border-[var(--border-main)] rounded-2xl space-y-6 shadow-2xl">
+                                <div className="border-b border-[var(--border-main)]/40 pb-4">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-9 h-9 rounded-xl bg-[var(--brand-lime-alpha)]/20 text-[var(--brand-lime)] flex items-center justify-center">
+                                            <FileCheck2 size={20} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-black text-white">Quality Control Inspection Sign-Off</h3>
+                                            <p className="text-xs text-[var(--text-dim)]">
+                                                Final inspection scorecard before vehicle is sent to billing and hand-off.
+                                            </p>
                                         </div>
                                     </div>
-                                ))}
+                                </div>
+
+                                {/* Inspection Scorecard */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <div className={`p-4 rounded-xl border ${
+                                        allTasksCompleted ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-orange-500/40 bg-orange-500/5'
+                                    }`}>
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Doable Tasks</span>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className="text-lg font-black font-mono text-white">{completedTasksCount}/{totalTasksCount}</span>
+                                            {allTasksCompleted ? <CheckCircle2 size={18} className="text-emerald-400 stroke-[3]" /> : <AlertTriangle size={18} className="text-orange-400" />}
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
+                                            {allTasksCompleted ? 'All tasks completed' : `${totalTasksCount - completedTasksCount} task(s) remaining`}
+                                        </span>
+                                    </div>
+
+                                    <div className={`p-4 rounded-xl border ${
+                                        hasAllTaskPhotos ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-orange-500/40 bg-orange-500/5'
+                                    }`}>
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Task Photos</span>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className="text-lg font-black font-mono text-white">{uploadedPhotosCount}/{requiredPhotosCount}</span>
+                                            {hasAllTaskPhotos ? <CheckCircle2 size={18} className="text-emerald-400 stroke-[3]" /> : <Camera size={18} className="text-orange-400" />}
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
+                                            {hasAllTaskPhotos ? 'All task proof uploaded' : `${requiredPhotosCount - uploadedPhotosCount} photo(s) missing`}
+                                        </span>
+                                    </div>
+
+                                    <div className={`p-4 rounded-xl border ${
+                                        allPartsInstalled ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-orange-500/40 bg-orange-500/5'
+                                    }`}>
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Parts Installed</span>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className="text-lg font-black font-mono text-white">{installedPartsCount}/{totalPartsCount}</span>
+                                            {allPartsInstalled ? <CheckCircle2 size={18} className="text-emerald-400 stroke-[3]" /> : <Wrench size={18} className="text-orange-400" />}
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
+                                            {allPartsInstalled ? 'All parts installed' : `${totalPartsCount - installedPartsCount} part(s) pending`}
+                                        </span>
+                                    </div>
+
+                                    <div className="p-4 rounded-xl border border-blue-500/40 bg-blue-500/5">
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-dim)]">Repair Photos</span>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className="text-lg font-black font-mono text-white">{uploadedVehiclePhotosCount}/{vehicleRequiredPhotos.length}</span>
+                                            <Camera size={18} className="text-blue-400" />
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
+                                            {uploadedVehiclePhotosCount} vehicle angles captured
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Status Verdict Alert */}
+                                {isQcFullyComplete ? (
+                                    <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-[var(--brand-lime-alpha)]/10 border-2 border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+                                        <div className="flex items-center gap-3.5">
+                                            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                                                <CheckCircle2 size={22} className="stroke-[3]" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-black text-emerald-300">
+                                                    Quality Control Approved & Ready for Billing!
+                                                </h4>
+                                                <p className="text-xs text-[var(--text-dim)] mt-0.5">
+                                                    All doable tasks are completed, parts are marked installed, and required verification photos are attached.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            disabled={actionLoading}
+                                            onClick={() => handleTransition('BILLING', 'billing')}
+                                            className="btn-primary !py-3 !px-6 text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-[var(--brand-lime)]/20 hover:scale-102 shrink-0 cursor-pointer"
+                                        >
+                                            {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} className="stroke-[2.5]" />}
+                                            Proceed to Service Billing
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-start gap-3">
+                                        <AlertTriangle size={18} className="text-orange-400 shrink-0 mt-0.5" />
+                                        <div className="space-y-1">
+                                            <h4 className="text-xs font-bold text-orange-300">Incomplete Quality Control Items</h4>
+                                            <p className="text-xs text-[var(--text-dim)]">
+                                                To progress to billing, ensure all doable tasks are COMPLETED, all parts are INSTALLED, and proof photos are uploaded.
+                                            </p>
+                                            <div className="flex gap-2 pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQcActiveStage('tasks')}
+                                                    className="text-[11px] font-bold text-[var(--brand-lime)] hover:underline cursor-pointer"
+                                                >
+                                                    ← Review Incomplete Tasks
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Inspection Photo Reel */}
+                                <div className="space-y-3 pt-3 border-t border-[var(--border-main)]/30">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-dim)]">
+                                        Inspection Photo Reel ({wo.photos.length} total photos)
+                                    </h4>
+                                    {wo.photos.length === 0 ? (
+                                        <p className="text-xs text-[var(--text-muted)] italic">No photos uploaded yet.</p>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
+                                            {wo.photos.map((photo) => (
+                                                <div
+                                                    key={photo._id}
+                                                    onClick={() => setPreviewPhoto({ url: photo.url, caption: photo.caption || 'QC Photo', stage: photo.stage || 'QC' })}
+                                                    className="aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all relative group cursor-zoom-in"
+                                                >
+                                                    <img src={photo.url} alt="QC" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                        <Maximize2 size={13} className="text-white" />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
+
+                        {/* Hidden Native File Input for Photo Uploads */}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleFileChange}
+                        />
                     </div>
                 );
             })()}
@@ -1879,26 +2689,297 @@ const WorkOrderDetail = () => {
                                             </div>
                                         </div>
 
-                                        {(() => {
-                                            const v = wo.vehicleId as any;
-                                            if (v && v.currentDriver) {
-                                                return (
-                                                    <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)]">
-                                                        <div>
-                                                            <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
-                                                            <p className="text-[10px] text-[var(--text-dim)] mt-0.5">Toggle if this bill is to be paid by the driver</p>
-                                                        </div>
-                                                        <button
-                                                            className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
-                                                            onClick={() => setIsDriverBilled(!isDriverBilled)}
-                                                        >
-                                                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isDriverBilled ? 'right-1' : 'left-1'}`} />
-                                                        </button>
+                                        {/* Driver Billed Option */}
+                                        <div className="p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border-main)] space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${isDriverBilled ? 'bg-[var(--brand-lime)] text-[var(--brand-black)] font-bold' : 'bg-white/5 text-[var(--text-dim)]'}`}>
+                                                        <User size={18} />
                                                     </div>
-                                                );
-                                            }
-                                            return null;
-                                        })()}
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">Driver Billed</p>
+                                                            {isDriverBilled && (
+                                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--brand-lime)]/20 text-[var(--brand-lime)] uppercase tracking-wider">
+                                                                    Enabled
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[10px] text-[var(--text-dim)] mt-0.5">
+                                                            Link this service bill directly to a driver and customer billing account
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    aria-label="Toggle driver billed"
+                                                    className={`w-12 h-6 rounded-full transition-all relative ${isDriverBilled ? 'bg-[var(--brand-lime)]' : 'bg-white/10'}`}
+                                                    onClick={() => {
+                                                        const next = !isDriverBilled;
+                                                        setIsDriverBilled(next);
+                                                        if (next && !selectedDriverId) {
+                                                            const v = wo.vehicleId as any;
+                                                            const vDriverId = v?.currentDriver?._id || (typeof v?.currentDriver === 'string' ? v?.currentDriver : null);
+                                                            if (vDriverId) {
+                                                                setSelectedDriverId(vDriverId);
+                                                                const matched = billingDrivers.find(d => d._id === vDriverId);
+                                                                if (matched?.customer?._id) {
+                                                                    setSelectedCustomerId(matched.customer._id);
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isDriverBilled ? 'right-1' : 'left-1'}`} />
+                                                </button>
+                                            </div>
+
+                                            {isDriverBilled && (
+                                                <div className="pt-3 border-t border-[var(--border-main)]/60 space-y-2.5">
+                                                    {/* Quick vehicle driver suggestion if assigned to vehicle */}
+                                                    {(() => {
+                                                        const v = wo.vehicleId as any;
+                                                        const vDriver = v?.currentDriver;
+                                                        const vDriverId = vDriver?._id || (typeof vDriver === 'string' ? vDriver : null);
+                                                        const vDriverName = vDriver?.personalInfo?.fullName || (billingDrivers.find(d => d._id === vDriverId)?.fullName);
+                                                        if (vDriverId && vDriverName && selectedDriverId !== vDriverId) {
+                                                            return (
+                                                                <div className="flex items-center justify-between p-2 rounded-lg bg-[var(--brand-lime-alpha)]/10 border border-[var(--brand-lime-alpha)]/30 text-[11px]">
+                                                                    <div className="flex items-center gap-1.5 text-[var(--text-main)]">
+                                                                        <Car size={13} className="text-[var(--brand-lime)]" />
+                                                                        <span>Vehicle Assigned Driver: <strong>{vDriverName}</strong></span>
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setSelectedDriverId(vDriverId);
+                                                                            const matched = billingDrivers.find(d => d._id === vDriverId);
+                                                                            if (matched?.customer?._id) setSelectedCustomerId(matched.customer._id);
+                                                                        }}
+                                                                        className="px-2 py-0.5 rounded bg-[var(--brand-lime)] text-[var(--brand-black)] font-bold text-[10px] hover:brightness-110 transition-all"
+                                                                    >
+                                                                        Select
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+
+                                                    <div className="space-y-1.5" ref={driverDropdownRef}>
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-[10px] font-bold text-[var(--text-dim)] uppercase tracking-wider">
+                                                                Select Driver
+                                                            </label>
+                                                            {driversLoading && (
+                                                                <span className="text-[10px] text-[var(--brand-lime)] flex items-center gap-1">
+                                                                    <Loader2 size={10} className="animate-spin" /> Loading drivers...
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Custom Dropdown Trigger */}
+                                                        <div className="relative">
+                                                            {(() => {
+                                                                const matchedDriver = billingDrivers.find(d => d._id === selectedDriverId);
+                                                                const v = wo.vehicleId as any;
+                                                                const fallbackName = typeof v?.currentDriver === 'object' && v?.currentDriver?._id === selectedDriverId
+                                                                    ? v.currentDriver.personalInfo?.fullName
+                                                                    : null;
+
+                                                                return (
+                                                                    <div
+                                                                        role="button"
+                                                                        tabIndex={0}
+                                                                        onClick={() => setIsDriverDropdownOpen(prev => !prev)}
+                                                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsDriverDropdownOpen(prev => !prev); }}
+                                                                        className={`w-full bg-[var(--bg-card)] border rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all ${isDriverDropdownOpen ? 'border-[var(--brand-lime)] ring-1 ring-[var(--brand-lime)]/20' : 'border-[var(--border-main)] hover:border-[var(--brand-lime)]/50'}`}
+                                                                    >
+                                                                        {matchedDriver || fallbackName ? (
+                                                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                                                <div className="w-8 h-8 rounded-lg bg-[var(--brand-lime)] text-[var(--brand-black)] font-bold flex items-center justify-center shrink-0 text-xs">
+                                                                                    {(matchedDriver?.fullName || fallbackName || 'D').charAt(0).toUpperCase()}
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <p className="text-xs font-bold text-[var(--text-main)] truncate">
+                                                                                            {matchedDriver?.fullName || fallbackName}
+                                                                                        </p>
+                                                                                        {matchedDriver?.driverId && (
+                                                                                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/10 text-[var(--brand-lime)]">
+                                                                                                {matchedDriver.driverId}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-3 text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
+                                                                                        {matchedDriver?.phone && (
+                                                                                            <span className="flex items-center gap-1">
+                                                                                                <Phone size={10} /> {matchedDriver.phone}
+                                                                                            </span>
+                                                                                        )}
+                                                                                        {matchedDriver?.customer?.name && (
+                                                                                            <span className="text-[var(--text-dim)] truncate">
+                                                                                                • Account: <strong className="text-[var(--text-main)]">{matchedDriver.customer.name}</strong>
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="flex items-center gap-2.5 text-[var(--text-muted)]">
+                                                                                <Search size={15} />
+                                                                                <span className="text-xs">Choose or search a driver to connect...</span>
+                                                                            </div>
+                                                                        )}
+
+                                                                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                                                                            {selectedDriverId && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        setSelectedDriverId('');
+                                                                                        setSelectedCustomerId('');
+                                                                                    }}
+                                                                                    className="p-1 hover:bg-white/10 rounded-md text-[var(--text-dim)] hover:text-red-400 transition-colors"
+                                                                                    title="Clear selection"
+                                                                                >
+                                                                                    <X size={14} />
+                                                                                </button>
+                                                                            )}
+                                                                            {isDriverDropdownOpen ? <ChevronUp size={16} className="text-[var(--text-dim)]" /> : <ChevronDown size={16} className="text-[var(--text-dim)]" />}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
+
+                                                            {/* Dropdown Menu */}
+                                                            {isDriverDropdownOpen && (
+                                                                <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-[var(--bg-card)] border border-[var(--border-main)] rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fadeIn">
+                                                                    {/* Search Input */}
+                                                                    <div className="p-2.5 border-b border-[var(--border-main)] bg-[var(--bg-input)]">
+                                                                        <div className="relative">
+                                                                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" />
+                                                                            <input
+                                                                                type="text"
+                                                                                placeholder="Search by name, driver ID, phone, vehicle plate, customer..."
+                                                                                value={driverSearchQuery}
+                                                                                onChange={(e) => setDriverSearchQuery(e.target.value)}
+                                                                                autoFocus
+                                                                                className="w-full bg-[var(--bg-card)] border border-[var(--border-main)] rounded-lg pl-8 pr-8 py-2 text-xs text-[var(--text-main)] placeholder-[var(--text-dim)] focus:outline-none focus:border-[var(--brand-lime)]/50"
+                                                                            />
+                                                                            {driverSearchQuery && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setDriverSearchQuery('')}
+                                                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-dim)] hover:text-white"
+                                                                                >
+                                                                                    <X size={12} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Driver List */}
+                                                                    <div className="max-h-60 overflow-y-auto divide-y divide-[var(--border-main)]/50">
+                                                                        {(() => {
+                                                                            const q = driverSearchQuery.trim().toLowerCase();
+                                                                            const filtered = billingDrivers.filter(d => {
+                                                                                if (!q) return true;
+                                                                                return (
+                                                                                    d.fullName?.toLowerCase().includes(q) ||
+                                                                                    d.driverId?.toLowerCase().includes(q) ||
+                                                                                    d.phone?.toLowerCase().includes(q) ||
+                                                                                    d.email?.toLowerCase().includes(q) ||
+                                                                                    d.currentVehicle?.plateNumber?.toLowerCase().includes(q) ||
+                                                                                    d.customer?.name?.toLowerCase().includes(q)
+                                                                                );
+                                                                            });
+
+                                                                            if (filtered.length === 0) {
+                                                                                return (
+                                                                                    <div className="p-6 text-center text-xs text-[var(--text-dim)]">
+                                                                                        {driversLoading ? 'Loading drivers...' : `No drivers found matching "${driverSearchQuery}"`}
+                                                                                    </div>
+                                                                                );
+                                                                            }
+
+                                                                            return filtered.map((driver) => {
+                                                                                const isSelected = selectedDriverId === driver._id;
+                                                                                const v = wo.vehicleId as any;
+                                                                                const isCurrentVehicleDriver = (v?.currentDriver?._id || v?.currentDriver) === driver._id;
+
+                                                                                return (
+                                                                                    <div
+                                                                                        key={driver._id}
+                                                                                        onClick={() => {
+                                                                                            setSelectedDriverId(driver._id);
+                                                                                            setSelectedCustomerId(driver.customer?._id || '');
+                                                                                            setIsDriverDropdownOpen(false);
+                                                                                            setDriverSearchQuery('');
+                                                                                        }}
+                                                                                        className={`p-3 flex items-center justify-between cursor-pointer transition-colors ${isSelected ? 'bg-[var(--brand-lime-alpha)]/20' : 'hover:bg-white/5'}`}
+                                                                                    >
+                                                                                        <div className="flex items-center gap-3 min-w-0">
+                                                                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${isSelected ? 'bg-[var(--brand-lime)] text-[var(--brand-black)]' : 'bg-white/10 text-[var(--text-main)]'}`}>
+                                                                                                {driver.fullName ? driver.fullName.charAt(0).toUpperCase() : 'D'}
+                                                                                            </div>
+                                                                                            <div className="min-w-0">
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <span className="text-xs font-bold text-[var(--text-main)] truncate">
+                                                                                                        {driver.fullName}
+                                                                                                    </span>
+                                                                                                    {driver.driverId && (
+                                                                                                        <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-black/20 text-[var(--text-dim)]">
+                                                                                                            {driver.driverId}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                    {isCurrentVehicleDriver && (
+                                                                                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--brand-lime)]/20 text-[var(--brand-lime)] uppercase tracking-wider">
+                                                                                                            This Vehicle
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                <div className="flex items-center gap-3 text-[11px] text-[var(--text-muted)] mt-0.5">
+                                                                                                    {driver.phone && (
+                                                                                                        <span className="flex items-center gap-1">
+                                                                                                            <Phone size={10} /> {driver.phone}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                    {driver.currentVehicle?.plateNumber && (
+                                                                                                        <span className="flex items-center gap-1 text-[var(--text-dim)]">
+                                                                                                            <Car size={10} /> {driver.currentVehicle.plateNumber}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                    {driver.customer?.name && (
+                                                                                                        <span className="text-[var(--brand-lime)] text-[10px] font-semibold">
+                                                                                                            Account: {driver.customer.name}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        {isSelected && (
+                                                                                            <Check size={16} className="text-[var(--brand-lime)] shrink-0 ml-2" />
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            });
+                                                                        })()}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {isDriverBilled && !selectedDriverId && (
+                                                            <p className="text-[10px] text-amber-400/90 flex items-center gap-1 ml-1">
+                                                                <AlertCircle size={11} /> Please select a driver to connect to this bill
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
 
                                         {(() => {
                                             const installedParts = (wo.parts || []).filter((p: any) => p.status === 'INSTALLED');
@@ -1925,14 +3006,20 @@ const WorkOrderDetail = () => {
 
                                                     <button
                                                         className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                                                        disabled={actionLoading || preBillValue <= 0 || !['BILLING', 'QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
+                                                        disabled={actionLoading || preBillValue <= 0 || (isDriverBilled && !selectedDriverId) || !['BILLING', 'QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
                                                         onClick={() => {
+                                                            if (isDriverBilled && !selectedDriverId) {
+                                                                toast.error('Please select a driver to connect to this bill');
+                                                                return;
+                                                            }
                                                             doAction(() => generateBill(id!, {
                                                                 hourlyRate: Number(hourlyRate),
                                                                 taxRate: Number(taxRate),
                                                                 taxName,
                                                                 taxProfileId,
-                                                                isDriverBilled
+                                                                isDriverBilled,
+                                                                driverId: isDriverBilled ? selectedDriverId : undefined,
+                                                                customerId: isDriverBilled ? selectedCustomerId : undefined
                                                             }));
                                                         }}
                                                     >
@@ -1978,9 +3065,45 @@ const WorkOrderDetail = () => {
                                             </div>
 
                                             {bill?.isDriverBilled && (
-                                                <div className="mb-4 px-3 py-1.5 rounded-lg bg-[var(--brand-lime)] text-[var(--brand-black)] text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-1.5">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                                                    Driver Billed
+                                                <div className="mb-5 p-3.5 rounded-xl bg-[var(--brand-lime-alpha)]/10 border border-[var(--brand-lime-alpha)]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-9 h-9 rounded-xl bg-[var(--brand-lime)] text-[var(--brand-black)] flex items-center justify-center font-bold shrink-0">
+                                                            <User size={18} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)]">
+                                                                    Driver Billed
+                                                                </span>
+                                                                {bill.driverId?.driverId && (
+                                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/20 text-[var(--text-muted)]">
+                                                                        {bill.driverId.driverId}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs font-bold text-[var(--text-main)]">
+                                                                {bill.driverId?.personalInfo?.fullName || bill.driverId?.fullName || (typeof bill.driverId === 'string' ? bill.driverId : 'Assigned Driver')}
+                                                            </p>
+                                                            {bill.driverId?.phone && (
+                                                                <p className="text-[11px] text-[var(--text-dim)] flex items-center gap-1 mt-0.5">
+                                                                    <Phone size={10} /> {bill.driverId.phone}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    {bill.customerId && (
+                                                        <div className="sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border-main)]/50">
+                                                            <span className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider block">Customer Billing Account</span>
+                                                            <p className="text-xs font-semibold text-[var(--text-main)]">
+                                                                {bill.customerId?.name || 'Linked Account'}
+                                                            </p>
+                                                            {bill.customerId?.customerId && (
+                                                                <span className="text-[10px] font-mono text-[var(--text-dim)]">
+                                                                    ID: {bill.customerId.customerId}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -2012,40 +3135,11 @@ const WorkOrderDetail = () => {
                                                 <ChevronRight size={16} />
                                             </button>
                                             <button
-                                                className={`w-full h-12 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${bill?.paymentStatus === 'PAID'
-                                                    ? 'bg-green-500/20 text-green-500 border border-green-500/30 cursor-default'
-                                                    : 'bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] text-[var(--brand-black)] active:scale-[0.98]'
-                                                    }`}
-                                                disabled={actionLoading || bill?.paymentStatus === 'PAID'}
-                                                onClick={() => {
-                                                    if (wo.serviceBillId) {
-                                                        doAction(async () => {
-                                                            let currentBill = bill;
-                                                            if (!currentBill) {
-                                                                currentBill = await getServiceBillById(wo.serviceBillId!);
-                                                                setBill(currentBill);
-                                                            }
-
-                                                            if (currentBill.paymentStatus === 'PAID') {
-                                                                toast.success('Bill is already paid');
-                                                                return;
-                                                            }
-
-                                                            if (currentBill.status === 'DRAFT' || currentBill.status === 'PENDING_APPROVAL') {
-                                                                await approveBill(wo.serviceBillId!);
-                                                            }
-
-                                                            await markBillPaid(wo.serviceBillId!, currentBill.totalAmount, 'Cash');
-                                                            toast.success('Payment completed');
-
-                                                            // Force a refresh of everything
-                                                            await load();
-                                                        });
-                                                    }
-                                                }}
+                                                className="w-full h-12 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] text-[var(--brand-black)] text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                                                onClick={() => setShowBillModal(true)}
                                             >
-                                                <CheckCircle2 size={16} />
-                                                {bill?.paymentStatus === 'PAID' ? 'PAID' : 'Payment Complete'}
+                                                <Eye size={16} />
+                                                Show Bill
                                             </button>
                                         </div>
                                     </div>
@@ -2095,6 +3189,45 @@ const WorkOrderDetail = () => {
                     </div>
                 </div>
             )}
+
+            {/* ── Photo Preview Lightbox Modal ── */}
+            {previewPhoto && (
+                <div 
+                    className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+                    onClick={() => setPreviewPhoto(null)}
+                >
+                    <div 
+                        className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between p-4 border-b border-[var(--border-main)]/50 bg-black/40">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-xs font-bold uppercase tracking-wider text-[var(--brand-lime)] bg-[var(--brand-lime-alpha)]/20 px-2 py-0.5 rounded font-mono">
+                                    {previewPhoto.stage || 'QC'}
+                                </span>
+                                <h3 className="text-sm font-bold text-white truncate">
+                                    {previewPhoto.caption || 'Verification Photo'}
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setPreviewPhoto(null)}
+                                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="p-3 bg-black flex items-center justify-center overflow-hidden flex-1 min-h-[300px]">
+                            <img 
+                                src={previewPhoto.url} 
+                                alt={previewPhoto.caption || 'QC Photo'} 
+                                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── GPS MODAL ── */}
             {showGpsModal && (
                 <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -2299,6 +3432,243 @@ const WorkOrderDetail = () => {
                                 )}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Service Bill Modal ── */}
+            {showBillModal && bill && (
+                <div 
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
+                    onClick={() => setShowBillModal(false)}
+                >
+                    <div 
+                        className="bg-[var(--bg-card)] border border-[var(--border-main)] w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div className="p-6 border-b border-[var(--border-main)] flex items-center justify-between bg-[var(--bg-input)]">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime)] text-[var(--brand-black)] flex items-center justify-center font-bold">
+                                    <Receipt size={22} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-lg font-bold text-[var(--text-main)] font-mono">
+                                            {bill.billNumber}
+                                        </h2>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                            bill.status === 'APPROVED' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                                            bill.status === 'PAID' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+                                            'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                                        }`}>
+                                            {bill.status}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                        Generated on {bill.createdAt ? new Date(bill.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => window.print()}
+                                    className="p-2 hover:bg-white/10 text-[var(--text-muted)] hover:text-white rounded-xl transition-colors cursor-pointer"
+                                    title="Print Bill"
+                                >
+                                    <Printer size={18} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowBillModal(false)}
+                                    className="p-2 hover:bg-white/10 text-[var(--text-muted)] hover:text-white rounded-xl transition-colors cursor-pointer"
+                                    title="Close"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            {/* Summary Metadata Cards */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="p-3.5 bg-white/5 rounded-2xl border border-[var(--border-main)]">
+                                    <p className="text-[10px] text-[var(--text-dim)] uppercase font-bold tracking-widest mb-1">Payment Status</p>
+                                    <p className={`font-bold text-sm ${bill.paymentStatus === 'PAID' ? 'text-green-400' : 'text-amber-400'}`}>
+                                        {bill.paymentStatus || 'UNPAID'}
+                                    </p>
+                                </div>
+                                <div className="p-3.5 bg-white/5 rounded-2xl border border-[var(--border-main)]">
+                                    <p className="text-[10px] text-[var(--text-dim)] uppercase font-bold tracking-widest mb-1">Work Order</p>
+                                    <p className="font-bold text-sm text-[var(--text-main)] font-mono">
+                                        {wo.workOrderNumber || 'N/A'}
+                                    </p>
+                                </div>
+                                <div className="p-3.5 bg-white/5 rounded-2xl border border-[var(--border-main)]">
+                                    <p className="text-[10px] text-[var(--text-dim)] uppercase font-bold tracking-widest mb-1">Vehicle</p>
+                                    <p className="font-bold text-sm text-[var(--text-main)] truncate">
+                                        {(wo.vehicleId as any)?.basicDetails?.make || ''} {(wo.vehicleId as any)?.basicDetails?.model || ''}
+                                    </p>
+                                    <span className="text-[10px] font-mono text-[var(--text-dim)]">
+                                        {(wo.vehicleId as any)?.plateNumber || (wo.vehicleId as any)?.legalDocs?.plateNumber || (wo.vehicleId as any)?.basicDetails?.vin || ''}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Driver Billed & Customer Section */}
+                            {bill.isDriverBilled && (
+                                <div className="p-4 rounded-2xl bg-[var(--brand-lime-alpha)]/10 border border-[var(--brand-lime-alpha)]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime)] text-[var(--brand-black)] flex items-center justify-center font-bold shrink-0">
+                                            <User size={20} />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)]">
+                                                    Driver Billed
+                                                </span>
+                                                {bill.driverId?.driverId && (
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/20 text-[var(--text-muted)]">
+                                                        {bill.driverId.driverId}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-sm font-bold text-[var(--text-main)]">
+                                                {bill.driverId?.personalInfo?.fullName || bill.driverId?.fullName || (typeof bill.driverId === 'string' ? bill.driverId : 'Assigned Driver')}
+                                            </p>
+                                            {bill.driverId?.phone && (
+                                                <p className="text-[11px] text-[var(--text-dim)] flex items-center gap-1 mt-0.5">
+                                                    <Phone size={10} /> {bill.driverId.phone}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {bill.customerId && (
+                                        <div className="sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border-main)]/50">
+                                            <span className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider block">Customer Billing Account</span>
+                                            <p className="text-xs font-semibold text-[var(--text-main)]">
+                                                {bill.customerId?.name || 'Linked Account'}
+                                            </p>
+                                            {bill.customerId?.customerId && (
+                                                <span className="text-[10px] font-mono text-[var(--text-dim)]">
+                                                    ID: {bill.customerId.customerId}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Line Items Table */}
+                            <div className="space-y-3">
+                                <h3 className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-wider flex items-center gap-2">
+                                    <FileText size={14} /> Bill Breakdown Items
+                                </h3>
+                                <div className="border border-[var(--border-main)] rounded-2xl overflow-hidden bg-black/10">
+                                    <table className="w-full text-left text-xs">
+                                        <thead className="bg-white/5 text-[var(--text-dim)] font-bold uppercase text-[10px] tracking-wider">
+                                            <tr>
+                                                <th className="p-3">Description</th>
+                                                <th className="p-3">Type</th>
+                                                <th className="p-3 text-center">Qty / Hrs</th>
+                                                <th className="p-3 text-right">Unit Price</th>
+                                                <th className="p-3 text-right">Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-[var(--border-main)]/40 text-[var(--text-main)]">
+                                            {(bill.lineItems || []).map((item: any, i: number) => (
+                                                <tr key={i} className="hover:bg-white/5 transition-colors">
+                                                    <td className="p-3 font-medium">{item.description}</td>
+                                                    <td className="p-3">
+                                                        <span className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
+                                                            item.type === 'LABOUR' ? 'bg-blue-500/20 text-blue-300' :
+                                                            item.type === 'PART' ? 'bg-orange-500/20 text-orange-300' :
+                                                            'bg-white/10 text-[var(--text-muted)]'
+                                                        }`}>
+                                                            {item.type}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 text-center font-mono">{item.quantity}</td>
+                                                    <td className="p-3 text-right font-mono">{item.unitPrice?.toLocaleString()} AED</td>
+                                                    <td className="p-3 text-right font-mono font-bold">{item.lineTotal?.toLocaleString()} AED</td>
+                                                </tr>
+                                            ))}
+                                            {(!bill.lineItems || bill.lineItems.length === 0) && (
+                                                <tr>
+                                                    <td colSpan={5} className="p-6 text-center text-[var(--text-dim)]">
+                                                        No individual line items recorded.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                        <tfoot className="bg-white/5 border-t-2 border-[var(--border-main)] text-xs">
+                                            <tr>
+                                                <td colSpan={4} className="p-3 text-right text-[var(--text-muted)] font-semibold">Subtotal</td>
+                                                <td className="p-3 text-right font-mono font-bold text-[var(--text-main)]">
+                                                    {(bill.subtotal || bill.totalAmount || 0).toLocaleString()} AED
+                                                </td>
+                                            </tr>
+                                            {bill.taxAmount > 0 && (
+                                                <tr>
+                                                    <td colSpan={4} className="p-3 text-right text-[var(--text-muted)]">
+                                                        Tax ({bill.taxName || 'VAT'} {bill.taxRate || 0}%)
+                                                    </td>
+                                                    <td className="p-3 text-right font-mono text-[var(--text-main)]">
+                                                        {bill.taxAmount?.toLocaleString()} AED
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            {bill.discount > 0 && (
+                                                <tr>
+                                                    <td colSpan={4} className="p-3 text-right text-emerald-400">Discount</td>
+                                                    <td className="p-3 text-right font-mono text-emerald-400">
+                                                        -{bill.discount?.toLocaleString()} AED
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            <tr className="bg-[var(--brand-lime)] text-[var(--brand-black)] font-black text-sm">
+                                                <td colSpan={4} className="p-3 text-right uppercase tracking-wider">Total Amount</td>
+                                                <td className="p-3 text-right font-mono font-black text-base">
+                                                    {(bill.totalAmount || 0).toLocaleString()} AED
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* Additional info / Notes if any */}
+                            {bill.notes && (
+                                <div className="p-3.5 rounded-xl bg-white/5 border border-[var(--border-main)] text-xs text-[var(--text-muted)]">
+                                    <span className="text-[10px] uppercase font-bold text-[var(--text-dim)] block mb-1">Notes</span>
+                                    {bill.notes}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 border-t border-[var(--border-main)] flex items-center justify-between bg-[var(--bg-input)]">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowBillModal(false);
+                                    navigate('/service-bills');
+                                }}
+                                className="px-4 py-2.5 rounded-xl border border-[var(--border-main)] hover:bg-white/5 text-xs font-bold text-[var(--text-main)] flex items-center gap-2 transition-all cursor-pointer"
+                            >
+                                <ExternalLink size={14} />
+                                Open in Bills Module
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowBillModal(false)}
+                                className="btn-secondary !py-2.5 !px-6 text-xs font-bold cursor-pointer"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

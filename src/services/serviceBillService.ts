@@ -29,6 +29,8 @@ export interface ServiceBill {
   vehicleId: string | any;
   branchId: string | { _id: string; name: string };
   isDriverBilled: boolean;
+  driverId?: any;
+  customerId?: any;
   status: BillStatus;
   lineItems: BillLineItem[];
   subtotal: number;

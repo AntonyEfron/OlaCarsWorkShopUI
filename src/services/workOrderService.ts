@@ -411,6 +411,31 @@ export const getTaxProfiles = async (): Promise<TaxProfile[]> => {
     }
 };
 
+export interface BillingDriver {
+    _id: string;
+    driverId: string;
+    fullName: string;
+    phone: string;
+    email: string;
+    status: string;
+    currentVehicle?: {
+        _id: string;
+        make?: string;
+        model?: string;
+        plateNumber?: string;
+    } | null;
+    customer?: {
+        _id: string;
+        customerId: string;
+        name: string;
+    } | null;
+}
+
+export const getBillingDrivers = async (): Promise<BillingDriver[]> => {
+    const response = await api.get('/api/work-orders/billing/drivers');
+    return response.data.data || response.data || [];
+};
+
 export const generateBill = async (
     workOrderId: string,
     options?: {
@@ -421,6 +446,8 @@ export const generateBill = async (
         discount?: number;
         notes?: string;
         isDriverBilled?: boolean;
+        driverId?: string;
+        customerId?: string;
     }
 ): Promise<any> => {
     const response = await api.post(`/api/work-orders/${workOrderId}/billing/generate`, options);

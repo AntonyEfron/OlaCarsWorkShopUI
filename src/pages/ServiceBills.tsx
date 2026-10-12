@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { 
   Receipt, Search, Filter, Eye, DollarSign, X, CheckCircle2, 
   Clock, AlertCircle, ArrowUpRight, MoreHorizontal, ChevronDown,
-  CreditCard, Banknote, Landmark, FileText, Loader2
+  FileText, Loader2, User, Phone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
-  getBills, getBillById, approveBill, recordPayment, voidBill,
-  type ServiceBill, type BillStatus, type PaymentStatus, type PaymentMethod 
+  getBills, getBillById, approveBill, voidBill,
+  type ServiceBill, type BillStatus, type PaymentStatus 
 } from '../services/serviceBillService';
 import { format } from 'date-fns';
 
@@ -34,17 +34,8 @@ const ServiceBills: React.FC = () => {
   
   const [selectedBill, setSelectedBill] = useState<ServiceBill | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  
-  // Payment Form State
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
-  const [paymentRef, setPaymentRef] = useState('');
-  const [paymentNotes, setPaymentNotes] = useState('');
-  const [submittingPayment, setSubmittingPayment] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const selectedAccountCode = '4010';
 
   const [kpiFilter, setKpiFilter] = useState<'ALL' | 'INVOICED' | 'NOT_INVOICED' | 'INVOICED_OLA' | 'PENDING_OLA' | 'INVOICED_CLIENT' | 'PENDING_CLIENT' | 'GATEPASS'>('ALL');
 
@@ -105,39 +96,6 @@ const ServiceBills: React.FC = () => {
       }
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to approve bill');
-    }
-  };
-
-  const handleOpenPayment = (bill: ServiceBill) => {
-    setSelectedBill(bill);
-    setPaymentAmount(bill.totalAmount - (bill.amountPaid || 0));
-    setShowPaymentModal(true);
-  };
-
-  const handleRecordPayment = async () => {
-    if (!selectedBill) return;
-    try {
-      setSubmittingPayment(true);
-      await recordPayment(selectedBill._id, {
-        amount: paymentAmount,
-        paymentMethod,
-        paymentReference: paymentRef,
-        notes: paymentNotes,
-        accountingCode: selectedAccountCode
-      });
-      toast.success('Payment recorded and synced to Ledger');
-      setShowPaymentModal(false);
-      setPaymentRef('');
-      setPaymentNotes('');
-      loadBills();
-      
-      // Refresh detail modal if open
-      const updated = await getBillById(selectedBill._id);
-      setSelectedBill(updated);
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to record payment');
-    } finally {
-      setSubmittingPayment(false);
     }
   };
 
@@ -418,7 +376,8 @@ const ServiceBills: React.FC = () => {
                     </div>
                     {bill.isDriverBilled && (
                       <div className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--brand-lime-alpha)] text-[var(--brand-lime)] text-[8px] font-bold uppercase tracking-wider">
-                        Driver Billed
+                        <User size={9} />
+                        Driver Billed{bill.driverId?.personalInfo?.fullName || bill.driverId?.fullName ? `: ${bill.driverId?.personalInfo?.fullName || bill.driverId?.fullName}` : ''}
                       </div>
                     )}
                   </td>
@@ -458,15 +417,6 @@ const ServiceBills: React.FC = () => {
                           title="Approve Bill"
                         >
                           <CheckCircle2 size={18} />
-                        </button>
-                      )}
-                      {(bill.status === 'APPROVED' || (bill.status === 'PAID' && bill.paymentStatus === 'PARTIAL')) && (
-                        <button 
-                          onClick={() => handleOpenPayment(bill)}
-                          className="p-2 hover:bg-[var(--bg-input)] rounded-lg transition-colors text-green-500"
-                          title="Record Payment"
-                        >
-                          <DollarSign size={18} />
                         </button>
                       )}
                     </div>
@@ -545,6 +495,49 @@ const ServiceBills: React.FC = () => {
                   <p className="font-bold text-sm">{selectedBill.workOrderId?.workOrderNumber || 'N/A'}</p>
                 </div>
               </div>
+
+              {selectedBill.isDriverBilled && (
+                <div className="p-4 bg-[var(--brand-lime-alpha)]/10 rounded-2xl border border-[var(--brand-lime-alpha)]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime)] text-black flex items-center justify-center font-bold shrink-0">
+                      <User size={20} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)]">
+                          Driver Billed
+                        </span>
+                        {selectedBill.driverId?.driverId && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/20 text-gray-300">
+                            {selectedBill.driverId.driverId}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-bold text-white">
+                        {selectedBill.driverId?.personalInfo?.fullName || selectedBill.driverId?.fullName || (typeof selectedBill.driverId === 'string' ? selectedBill.driverId : 'Assigned Driver')}
+                      </p>
+                      {selectedBill.driverId?.phone && (
+                        <p className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
+                          <Phone size={10} /> {selectedBill.driverId.phone}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {selectedBill.customerId && (
+                    <div className="sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-white/10">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wider block">Customer Billing Account</span>
+                      <p className="text-xs font-semibold text-white">
+                        {selectedBill.customerId?.name || 'Linked Account'}
+                      </p>
+                      {selectedBill.customerId?.customerId && (
+                        <span className="text-[10px] font-mono text-gray-400">
+                          ID: {selectedBill.customerId.customerId}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-4">
                 <h3 className="text-sm font-bold opacity-60 uppercase tracking-widest flex items-center gap-2">
@@ -646,121 +639,12 @@ const ServiceBills: React.FC = () => {
                   Approve Bill
                 </button>
               )}
-              {(selectedBill.status === 'APPROVED' || (selectedBill.status === 'PAID' && selectedBill.paymentStatus === 'PARTIAL')) && (
-                <button 
-                  onClick={() => handleOpenPayment(selectedBill)}
-                  className="flex-1 btn-primary"
-                >
-                  Record Payment
-                </button>
-              )}
               <button 
                 onClick={() => setShowDetailModal(false)}
                 className="flex-1 btn-secondary"
               >
                 Close
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Payment Modal */}
-      {showPaymentModal && selectedBill && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fadeIn">
-          <div className="glass-card w-full max-w-md p-6 space-y-6 shadow-2xl relative">
-            <button onClick={() => setShowPaymentModal(false)} className="absolute right-4 top-4 p-2 opacity-40 hover:opacity-100 transition-opacity">
-              <X size={20} />
-            </button>
-            
-            <div className="text-center space-y-2">
-              <div className="w-16 h-16 rounded-full bg-[var(--brand-lime-alpha)] flex items-center justify-center mx-auto text-[var(--brand-lime)]">
-                <DollarSign size={32} />
-              </div>
-              <h2 className="text-xl font-bold">Record Payment</h2>
-              <p className="text-xs opacity-60">Record manual payment for {selectedBill.billNumber}</p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest opacity-60 block mb-2">Amount to Pay</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold opacity-40">$</span>
-                  <input
-                    type="number"
-                    className="w-full pl-8 pr-4 py-3 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-2xl focus:outline-none focus:border-[var(--brand-lime)] font-bold text-lg"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(Number(e.target.value))}
-                    max={selectedBill.totalAmount - selectedBill.amountPaid}
-                  />
-                  <button 
-                    onClick={() => setPaymentAmount(selectedBill.totalAmount - selectedBill.amountPaid)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold uppercase text-[var(--brand-lime)] hover:underline"
-                  >
-                    Full Balance
-                  </button>
-                </div>
-                <p className="text-[10px] mt-2 opacity-40 text-center">Remaining Balance: ${(selectedBill.totalAmount - selectedBill.amountPaid).toLocaleString()}</p>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest opacity-60 block mb-2">Payment Method</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'Cash', icon: Banknote },
-                    { id: 'Bank Transfer', icon: Landmark },
-                    { id: 'Credit Card', icon: CreditCard }
-                  ].map((method) => (
-                    <button
-                      key={method.id}
-                      onClick={() => setPaymentMethod(method.id as PaymentMethod)}
-                      className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${
-                        paymentMethod === method.id 
-                          ? 'bg-[var(--brand-lime)] border-[var(--brand-lime)] text-black' 
-                          : 'bg-[var(--bg-input)] border-[var(--border-main)] opacity-60'
-                      }`}
-                    >
-                      <method.icon size={20} className="mb-1" />
-                      <span className="text-[10px] font-bold">{method.id}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest opacity-60 block mb-2">Reference / Transaction ID</label>
-                <input
-                  type="text"
-                  placeholder="e.g. TRX-9928..."
-                  className="w-full px-4 py-3 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-2xl focus:outline-none focus:border-[var(--brand-lime)] text-sm"
-                  value={paymentRef}
-                  onChange={(e) => setPaymentRef(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest opacity-60 block mb-2">Accounting Code</label>
-                <div className="flex items-center gap-3 px-4 py-3 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-2xl opacity-60">
-                  <Landmark size={18} className="text-[var(--brand-lime)]" />
-                  <span className="text-sm font-bold">4010 - Workshop Service Income</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={() => setShowPaymentModal(false)}
-                  className="flex-1 btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleRecordPayment}
-                  disabled={submittingPayment || paymentAmount <= 0}
-                  className="flex-1 btn-primary"
-                >
-                  {submittingPayment ? <Loader2 className="animate-spin mx-auto" size={18} /> : 'Record Payment'}
-                </button>
-              </div>
             </div>
           </div>
         </div>
