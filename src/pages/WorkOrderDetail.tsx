@@ -13,8 +13,9 @@ import {
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
     getHourlyLabourRate, getTaxProfiles, approvePart, rejectPart, approveAllParts,
+    addPartQuantity,
     getBillingDrivers, type BillingDriver,
-    type WorkOrder, type WorkOrderStatus, type TaskStatus, type PartStatus,
+    type WorkOrder, type WorkOrderPart, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
     type TaxProfile,
 } from '../services/workOrderService';
@@ -90,6 +91,37 @@ const WorkOrderDetail = () => {
     const [partsLoading, setPartsLoading] = useState(false);
     const user = getUser();
     const branchId = (user?.branchId as string) || '';
+
+    /* ── Add Part Quantity State ── */
+    const [selectedPartForQty, setSelectedPartForQty] = useState<WorkOrderPart | null>(null);
+    const [additionalQtyInput, setAdditionalQtyInput] = useState<string>('');
+    const [addQtySubmitting, setAddQtySubmitting] = useState<boolean>(false);
+
+    const handleOpenAddQtyModal = (part: WorkOrderPart) => {
+        setSelectedPartForQty(part);
+        setAdditionalQtyInput('');
+    };
+
+    const handleConfirmAddQty = async () => {
+        if (!selectedPartForQty || !id) return;
+        const qty = parseFloat(additionalQtyInput);
+        if (isNaN(qty) || qty <= 0) {
+            toast.error('Please enter a valid positive quantity.');
+            return;
+        }
+        setAddQtySubmitting(true);
+        try {
+            const updated = await addPartQuantity(id, selectedPartForQty._id, qty);
+            setWo(updated);
+            toast.success(`Requested +${qty} for ${selectedPartForQty.partName}. Sent for manager approval.`);
+            setSelectedPartForQty(null);
+            setAdditionalQtyInput('');
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || err.message || 'Failed to add quantity.');
+        } finally {
+            setAddQtySubmitting(false);
+        }
+    };
 
     /* ── Photo form ── */
     const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -1067,7 +1099,7 @@ const WorkOrderDetail = () => {
                                 })()}
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Quantity</label>
-                                    <input type="number" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })} className="input-field max-w-[200px]" min="1" />
+                                    <input type="number" step="any" placeholder="Qty" value={partForm.quantity} onChange={(e) => setPartForm({ ...partForm, quantity: parseFloat(e.target.value) || 0 })} className="input-field max-w-[200px]" min="0.001" />
                                 </div>
                                 <div className="flex gap-2">
                                     <button className="btn-secondary text-xs flex-1" onClick={() => { setShowPartForm(false); setSelectedInventoryPart(null); }}>{t('common.cancel')}</button>
@@ -1153,8 +1185,13 @@ const WorkOrderDetail = () => {
                                                             <span className="badge text-[10px] bg-red-500/20 text-red-400 border border-red-500/30">REJECTED</span>
                                                         )}
                                                     </div>
-                                                    <p className="text-xs mt-1 text-muted-foreground">
-                                                        Qty: <strong className="text-white">{part.quantity}</strong> • ${part.unitCost.toFixed(2)} each = <strong className="text-emerald-400">${part.totalCost.toFixed(2)}</strong>
+                                                    <p className="text-xs mt-1 text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                                                        <span>Qty: <strong className="text-white">{part.quantity}</strong> • ${part.unitCost.toFixed(2)} each = <strong className="text-emerald-400">${part.totalCost.toFixed(2)}</strong></span>
+                                                        {Boolean((part as any).pendingAdditionalQuantity && (part as any).pendingAdditionalQuantity > 0) && (
+                                                            <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
+                                                                (+{(part as any).pendingAdditionalQuantity} pending approval)
+                                                            </span>
+                                                        )}
                                                     </p>
                                                     {(part as any).rejectionReason && (
                                                         <p className="text-[11px] text-red-400 mt-1 font-semibold">Reason: {(part as any).rejectionReason}</p>
@@ -1163,7 +1200,21 @@ const WorkOrderDetail = () => {
                                             </div>
 
                                             {/* Actions */}
-                                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
+                                                {/* + Add Qty Button: Always available (even after approval) as long as WO is active */}
+                                                {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={actionLoading}
+                                                        onClick={() => handleOpenAddQtyModal(part)}
+                                                        className="btn-secondary text-xs !py-1.5 !px-2.5 font-bold flex items-center gap-1 !bg-emerald-500/10 !text-emerald-400 !border-emerald-500/30 hover:!bg-emerald-500/20 transition-all cursor-pointer"
+                                                        title="Add additional quantity to this assigned part"
+                                                    >
+                                                        <Plus size={13} className="stroke-[3]" />
+                                                        <span>Add Qty</span>
+                                                    </button>
+                                                )}
+
                                                 {appStatus === 'PENDING' && isManagerRole && !['BILLING', 'CANCELLED'].includes(wo.status) && (
                                                     <>
                                                         <button
@@ -1191,7 +1242,7 @@ const WorkOrderDetail = () => {
                                                 {!['BILLING', 'CANCELLED'].includes(wo.status) && (
                                                     <button className="btn-icon !min-w-[36px] !min-h-[36px] !text-red-500" title="Remove" disabled={actionLoading}
                                                         onClick={() => {
-                                                            const confirmMsg = part.status === 'INSTALLED'
+                                                             const confirmMsg = part.status === 'INSTALLED'
                                                                 ? 'This part is currently INSTALLED. Removing it will return the stock to inventory. Are you sure you want to delete it?'
                                                                 : 'Are you sure you want to remove this part?';
                                                             if (window.confirm(confirmMsg)) {
@@ -3667,6 +3718,107 @@ const WorkOrderDetail = () => {
                                 className="btn-secondary !py-2.5 !px-6 text-xs font-bold cursor-pointer"
                             >
                                 Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Add Part Quantity Modal ── */}
+            {selectedPartForQty && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+                    <div className="glass-card max-w-md w-full p-6 border border-[var(--border-main)] rounded-2xl space-y-5 shadow-2xl bg-[#0f172a]/95 text-white">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                    <Package size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-white">Add Quantity</h3>
+                                    <p className="text-xs text-muted-foreground">{selectedPartForQty.partName}</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedPartForQty(null)}
+                                disabled={addQtySubmitting}
+                                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Part summary stats */}
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                                <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider mb-1">Current Assigned</span>
+                                <span className="font-mono text-base font-bold text-white">{selectedPartForQty.quantity}</span>
+                            </div>
+                            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                                <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider mb-1">Unit Cost</span>
+                                <span className="font-mono text-base font-bold text-emerald-400">${selectedPartForQty.unitCost.toFixed(2)}</span>
+                            </div>
+                        </div>
+
+                        {/* Additional Quantity Input */}
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
+                                <span>Additional Quantity to Add</span>
+                                <span className="text-[10px] text-emerald-400 font-mono">Supports decimals (e.g. 0.5, 1.2)</span>
+                            </label>
+                            <input
+                                type="number"
+                                step="any"
+                                min="0.001"
+                                placeholder="e.g. 0.5 or 1.2"
+                                value={additionalQtyInput}
+                                onChange={(e) => setAdditionalQtyInput(e.target.value)}
+                                className="input-field w-full font-mono text-lg font-bold !py-2.5 !px-3"
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Calculations preview */}
+                        {(() => {
+                            const addQty = parseFloat(additionalQtyInput);
+                            const isValid = !isNaN(addQty) && addQty > 0;
+                            const newTotalQty = isValid ? Math.round((selectedPartForQty.quantity + addQty) * 1000) / 1000 : selectedPartForQty.quantity;
+                            const newTotalCost = Math.round((newTotalQty * selectedPartForQty.unitCost) * 100) / 100;
+                            return (
+                                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5">
+                                    <div className="flex justify-between text-slate-300">
+                                        <span>Projected Total Quantity:</span>
+                                        <span className="font-mono font-bold text-white">{newTotalQty}</span>
+                                    </div>
+                                    <div className="flex justify-between text-slate-300">
+                                        <span>New Total Cost:</span>
+                                        <span className="font-mono font-bold text-emerald-400">${newTotalCost.toFixed(2)}</span>
+                                    </div>
+                                    <p className="text-[11px] text-amber-300/90 pt-1.5 border-t border-emerald-500/20 flex items-center gap-1.5">
+                                        <AlertTriangle size={13} className="shrink-0 text-amber-400" />
+                                        <span>Adding this quantity will submit the part for <strong>Manager Approval</strong> before inventory stock is deducted.</span>
+                                    </p>
+                                </div>
+                            );
+                        })()}
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-3 pt-2">
+                            <button
+                                type="button"
+                                disabled={addQtySubmitting}
+                                onClick={() => setSelectedPartForQty(null)}
+                                className="btn-secondary text-xs flex-1 !py-2.5 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={addQtySubmitting || !additionalQtyInput || parseFloat(additionalQtyInput) <= 0 || isNaN(parseFloat(additionalQtyInput))}
+                                onClick={handleConfirmAddQty}
+                                className="btn-primary text-xs flex-1 !py-2.5 flex items-center justify-center gap-1.5 font-bold cursor-pointer"
+                            >
+                                {addQtySubmitting ? <Loader2 size={14} className="animate-spin" /> : <><CheckCircle2 size={14} /> Submit for Approval</>}
                             </button>
                         </div>
                     </div>

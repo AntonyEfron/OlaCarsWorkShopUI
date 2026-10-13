@@ -48,6 +48,10 @@ export interface WorkOrderPart {
     installedBy?: string;
     inventoryPartId?: string | Record<string, unknown>;
     taskTemplateId?: string | Record<string, unknown>;
+    approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    approvedQuantity?: number;
+    pendingAdditionalQuantity?: number;
+    rejectionReason?: string;
 }
 
 export interface LabourEntry {
@@ -274,6 +278,17 @@ export const updatePart = async (
 
 export const removePart = async (workOrderId: string, partId: string): Promise<WorkOrder> => {
     const response = await api.delete(`/api/work-orders/${workOrderId}/parts/${partId}`);
+    return response.data.data || response.data;
+};
+
+export const addPartQuantity = async (
+    workOrderId: string,
+    partId: string,
+    additionalQuantity: number
+): Promise<WorkOrder> => {
+    const response = await api.post(`/api/work-orders/${workOrderId}/parts/${partId}/add-quantity`, {
+        additionalQuantity,
+    });
     return response.data.data || response.data;
 };
 
