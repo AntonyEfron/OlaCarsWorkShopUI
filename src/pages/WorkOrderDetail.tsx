@@ -3722,9 +3722,10 @@ const WorkOrderDetail = () => {
 
                                 {/* OLA WORKSHOP SHORT ADDRESS */}
                                 <div className="mt-3.5 text-xs text-slate-700 leading-relaxed font-sans">
-                                    <div className="font-bold text-slate-900 tracking-wide uppercase text-xs">Arrendadora Ola Cars, S.A.</div>
-                                    <div>Via Tocumen, Don Bosco</div>
-                                    <div>Ciudad de Panamá, Panamá</div>
+                                    <div className="font-bold text-slate-900 tracking-wide uppercase text-xs">ARRENDADORA OLA WORKSHOP</div>
+                                    <div>San Antonio, Avenida Domingo Díaz,</div>
+                                    <div>Villa Lucre, Rufina Alfaro, Distrito de San Miguelito,</div>
+                                    <div>Panama</div>
                                     <div className="text-[11px] text-slate-500 mt-0.5">RUC: 155711200-2-2022 DV: 44</div>
                                     <div className="text-[11px] text-slate-500">Tel: +507 833-9090 | taller@olacars.com</div>
                                 </div>
