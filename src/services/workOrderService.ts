@@ -7,8 +7,8 @@ export type WorkOrderStatus =
     | 'TASKS' | 'LABOUR' | 'QC_PHOTOS' | 'BILLING' | 'CANCELLED';
 
 export type WorkOrderType =
-    | 'PREVENTIVE' | 'CORRECTIVE' | 'PRE_ENTRY' | 'ACCIDENT'
-    | 'RETURN_INSPECTION' | 'RECALL' | 'SAFETY_PREP' | 'WEAR_ITEM' | 'OTHER';
+    | 'PREVENTIVE' | 'INTERVAL_MAINTENANCE' | 'WEAR_ITEM' | 'CORRECTIVE' | 'PRE_ENTRY' | 'ACCIDENT'
+    | 'RETURN_INSPECTION' | 'RECALL' | 'SAFETY_PREP' | 'OTHER';
 
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED';
@@ -284,13 +284,16 @@ export const removePart = async (workOrderId: string, partId: string): Promise<W
 export const addPartQuantity = async (
     workOrderId: string,
     partId: string,
-    additionalQuantity: number
+    quantityOrPayload: number | { additionalQuantity?: number; newQuantity?: number; quantity?: number }
 ): Promise<WorkOrder> => {
-    const response = await api.post(`/api/work-orders/${workOrderId}/parts/${partId}/add-quantity`, {
-        additionalQuantity,
-    });
+    const payload = typeof quantityOrPayload === 'number'
+        ? { additionalQuantity: quantityOrPayload }
+        : quantityOrPayload;
+    const response = await api.post(`/api/work-orders/${workOrderId}/parts/${partId}/add-quantity`, payload);
     return response.data.data || response.data;
 };
+
+export const updatePartQuantity = addPartQuantity;
 
 export interface PendingApprovalItem {
     workOrderId: string;

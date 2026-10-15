@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 import {
     ArrowLeft, Loader2, Info, ListChecks, Package, Clock, Shield, Camera,
     Play, Pause, Square, PlusCircle, Trash2, CheckCircle2, ChevronRight, ChevronLeft, ArrowRight, Upload, AlertTriangle,
-    Receipt, CreditCard, DollarSign, MapPin, RefreshCw, ExternalLink, X, Plus,
-    Eye, Check, CheckCheck, Sparkles, Maximize2, FileCheck2, Wrench, AlertCircle, RotateCcw, Layers, ZoomIn,
+    Receipt, CreditCard, DollarSign, MapPin, ExternalLink, X, Plus, Pencil,
+    Eye, Check, CheckCheck, Sparkles, Maximize2, FileCheck2, Wrench, AlertCircle, Layers, ZoomIn,
     User, Search, ChevronDown, ChevronUp, Phone, Mail, Car, FileText, Printer
 } from 'lucide-react';
 import {
@@ -13,19 +13,20 @@ import {
     addPart, updatePart, removePart, logLabour, generateQC, submitQC, addPhoto, addPhotoFile, removePhoto,
     generateBill, approveBill, markBillPaid, getServiceBillById, releaseVehicle,
     getHourlyLabourRate, getTaxProfiles, approvePart, rejectPart, approveAllParts,
-    addPartQuantity,
+    addPartQuantity, updatePartQuantity,
     getBillingDrivers, type BillingDriver,
     type WorkOrder, type WorkOrderPart, type WorkOrderStatus, type TaskStatus, type PartStatus,
     type QCResult, type AddTaskPayload, type AddPartPayload, type PartSource,
     type TaxProfile,
 } from '../services/workOrderService';
 import { getUserId, getUser, getUserRole } from '../utils/auth';
-import { getParts, type InventoryPart } from '../services/inventoryService';
+import { getParts, getPartById, type InventoryPart } from '../services/inventoryService';
 import {
     getVehicleGpsLocation, getGpsDevices, getVehicleGpsMileage, getVehicleGpsTrack, getVehicleGpsObdData,
     type GpsLocationData, type GpsMileageData, type GpsTrackPoint, type GpsObdData
 } from '../services/vehicleService';
 import toast from 'react-hot-toast';
+import workshopLogo from '../assets/image.png';
 
 type Tab = 'tasks' | 'labour' | 'qc' | 'billing';
 
@@ -92,34 +93,115 @@ const WorkOrderDetail = () => {
     const user = getUser();
     const branchId = (user?.branchId as string) || '';
 
-    /* ── Add Part Quantity State ── */
+    /* ── Edit Part Quantity & Inventory Availability State ── */
     const [selectedPartForQty, setSelectedPartForQty] = useState<WorkOrderPart | null>(null);
-    const [additionalQtyInput, setAdditionalQtyInput] = useState<string>('');
-    const [addQtySubmitting, setAddQtySubmitting] = useState<boolean>(false);
+    const [manualQtyInput, setManualQtyInput] = useState<string>('');
+    const [checkingStock, setCheckingStock] = useState<boolean>(false);
+    const [inventoryStockInfo, setInventoryStockInfo] = useState<{
+        available: number;
+        onHand: number;
+        reserved: number;
+        blocked?: number;
+        isBlocked?: boolean;
+        blockedReason?: string;
+    } | null>(null);
+    const [qtySubmitting, setQtySubmitting] = useState<boolean>(false);
 
-    const handleOpenAddQtyModal = (part: WorkOrderPart) => {
+    const handleOpenEditQtyModal = async (part: WorkOrderPart) => {
         setSelectedPartForQty(part);
-        setAdditionalQtyInput('');
+        setManualQtyInput(part.quantity.toString());
+        setInventoryStockInfo(null);
+
+        // Fetch live inventory availability from backend
+        const invPartId = typeof part.inventoryPartId === 'object'
+            ? (part.inventoryPartId as any)?._id
+            : part.inventoryPartId;
+
+        const effectivePartId = invPartId || inventoryParts.find(p => 
+            (part.partNumber && p.partNumber === part.partNumber) || 
+            (part.partName && p.partName.toLowerCase() === part.partName.toLowerCase())
+        )?._id;
+
+        if (effectivePartId) {
+            setCheckingStock(true);
+            try {
+                const livePart = await getPartById(effectivePartId);
+                if (livePart) {
+                    const available = Math.max(0, (livePart.quantityOnHand || 0) - (livePart.quantityReserved || 0) - (livePart.quantityBlocked || 0));
+                    setInventoryStockInfo({
+                        available,
+                        onHand: livePart.quantityOnHand || 0,
+                        reserved: livePart.quantityReserved || 0,
+                        blocked: livePart.quantityBlocked || 0,
+                        isBlocked: livePart.isBlocked || false,
+                        blockedReason: livePart.blockedReason,
+                    });
+                }
+            } catch {
+                // Fallback to locally loaded inventory list
+                const local = inventoryParts.find(p => p._id === effectivePartId);
+                if (local) {
+                    const available = Math.max(0, (local.quantityOnHand || 0) - (local.quantityReserved || 0) - (local.quantityBlocked || 0));
+                    setInventoryStockInfo({
+                        available,
+                        onHand: local.quantityOnHand || 0,
+                        reserved: local.quantityReserved || 0,
+                        blocked: local.quantityBlocked || 0,
+                        isBlocked: local.isBlocked || false,
+                        blockedReason: local.blockedReason,
+                    });
+                }
+            } finally {
+                setCheckingStock(false);
+            }
+        }
     };
 
-    const handleConfirmAddQty = async () => {
+    const handleConfirmEditQty = async () => {
         if (!selectedPartForQty || !id) return;
-        const qty = parseFloat(additionalQtyInput);
-        if (isNaN(qty) || qty <= 0) {
-            toast.error('Please enter a valid positive quantity.');
+        const newQty = parseFloat(manualQtyInput);
+        if (isNaN(newQty) || newQty <= 0) {
+            toast.error('Please enter a valid positive quantity greater than 0.');
             return;
         }
-        setAddQtySubmitting(true);
-        try {
-            const updated = await addPartQuantity(id, selectedPartForQty._id, qty);
-            setWo(updated);
-            toast.success(`Requested +${qty} for ${selectedPartForQty.partName}. Sent for manager approval.`);
+
+        const delta = Math.round((newQty - selectedPartForQty.quantity) * 1000) / 1000;
+        if (delta === 0) {
+            toast('Quantity is unchanged.', { icon: 'ℹ️' });
             setSelectedPartForQty(null);
-            setAdditionalQtyInput('');
+            return;
+        }
+
+        // Validate available inventory if increasing
+        if (delta > 0 && inventoryStockInfo) {
+            if (inventoryStockInfo.isBlocked) {
+                toast.error(`Part is blocked: ${inventoryStockInfo.blockedReason || 'Blocked from issuance'}`);
+                return;
+            }
+            if (delta > inventoryStockInfo.available) {
+                toast.error(`Insufficient inventory stock! Only ${inventoryStockInfo.available} units available in stock (+${delta} requested).`);
+                return;
+            }
+        }
+
+        setQtySubmitting(true);
+        try {
+            const updated = await addPartQuantity(id, selectedPartForQty._id, {
+                newQuantity: newQty,
+                additionalQuantity: delta > 0 ? delta : undefined
+            });
+            setWo(updated);
+            if (delta > 0) {
+                toast.success(`Quantity updated to ${newQty} (+${delta} sent for manager approval).`);
+            } else {
+                toast.success(`Quantity updated to ${newQty}.`);
+            }
+            setSelectedPartForQty(null);
+            setManualQtyInput('');
         } catch (err: any) {
-            toast.error(err.response?.data?.message || err.message || 'Failed to add quantity.');
+            toast.error(err.response?.data?.message || err.message || 'Failed to update quantity.');
         } finally {
-            setAddQtySubmitting(false);
+            setQtySubmitting(false);
         }
     };
 
@@ -172,7 +254,7 @@ const WorkOrderDetail = () => {
     const [hourlyRate, setHourlyRate] = useState(150);
     const [taxRate, setTaxRate] = useState(7);
     const [taxProfileId, setTaxProfileId] = useState('');
-    const [taxName, setTaxName] = useState('');
+    const [taxName, setTaxName] = useState('ITBMS 7%');
     const [taxProfiles, setTaxProfiles] = useState<any[]>([]);
 
     /* ── Labour Work Start/End Time state (Hours and Minutes inputs) ── */
@@ -316,7 +398,11 @@ const WorkOrderDetail = () => {
             try {
                 const taxes = await getTaxProfiles();
                 setTaxProfiles(taxes || []);
-                const itbms = taxes?.find((t: any) => t.name === 'ITBMS');
+                // Prioritize ITBMS 7% profile as default
+                const itbms = taxes?.find((t: any) => /itbms/i.test(t.name) && Number(t.rate) === 7)
+                    || taxes?.find((t: any) => t.name === 'ITBMS 7%')
+                    || taxes?.find((t: any) => /itbms/i.test(t.name))
+                    || taxes?.find((t: any) => Number(t.rate) === 7);
                 if (itbms) {
                     setTaxRate(itbms.rate);
                     setTaxProfileId(itbms._id);
@@ -1187,6 +1273,17 @@ const WorkOrderDetail = () => {
                                                     </div>
                                                     <p className="text-xs mt-1 text-muted-foreground flex items-center gap-1.5 flex-wrap">
                                                         <span>Qty: <strong className="text-white">{part.quantity}</strong> • ${part.unitCost.toFixed(2)} each = <strong className="text-emerald-400">${part.totalCost.toFixed(2)}</strong></span>
+                                                        {!['BILLING', 'CANCELLED'].includes(wo.status) && (
+                                                            <button
+                                                                type="button"
+                                                                disabled={actionLoading}
+                                                                onClick={() => handleOpenEditQtyModal(part)}
+                                                                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-amber-400 transition-colors inline-flex items-center ml-0.5 cursor-pointer"
+                                                                title="Edit quantity number manually"
+                                                            >
+                                                                <Pencil size={12} />
+                                                            </button>
+                                                        )}
                                                         {Boolean((part as any).pendingAdditionalQuantity && (part as any).pendingAdditionalQuantity > 0) && (
                                                             <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
                                                                 (+{(part as any).pendingAdditionalQuantity} pending approval)
@@ -1201,17 +1298,17 @@ const WorkOrderDetail = () => {
 
                                             {/* Actions */}
                                             <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
-                                                {/* + Add Qty Button: Always available (even after approval) as long as WO is active */}
+                                                {/* Edit Qty Button: Always available (even after approval) as long as WO is active */}
                                                 {!['BILLING', 'CANCELLED'].includes(wo.status) && (
                                                     <button
                                                         type="button"
                                                         disabled={actionLoading}
-                                                        onClick={() => handleOpenAddQtyModal(part)}
-                                                        className="btn-secondary text-xs !py-1.5 !px-2.5 font-bold flex items-center gap-1 !bg-emerald-500/10 !text-emerald-400 !border-emerald-500/30 hover:!bg-emerald-500/20 transition-all cursor-pointer"
-                                                        title="Add additional quantity to this assigned part"
+                                                        onClick={() => handleOpenEditQtyModal(part)}
+                                                        className="btn-secondary text-xs !py-1.5 !px-2.5 font-bold flex items-center gap-1.5 !bg-amber-500/10 !text-amber-400 !border-amber-500/30 hover:!bg-amber-500/20 transition-all cursor-pointer"
+                                                        title="Edit quantity number manually for this assigned part"
                                                     >
-                                                        <Plus size={13} className="stroke-[3]" />
-                                                        <span>Add Qty</span>
+                                                        <Pencil size={13} />
+                                                        <span>Edit Qty</span>
                                                     </button>
                                                 )}
 
@@ -2734,7 +2831,7 @@ const WorkOrderDetail = () => {
                                                         </option>
                                                     ))}
                                                     {taxProfiles.length === 0 && (
-                                                        <option value="">No tax profiles available</option>
+                                                        <option value="">ITBMS 7% (7%)</option>
                                                     )}
                                                 </select>
                                             </div>
@@ -3058,20 +3155,30 @@ const WorkOrderDetail = () => {
                                                     <button
                                                         className="w-full h-14 bg-[var(--brand-lime)] hover:shadow-lg hover:shadow-[var(--brand-lime-alpha)] disabled:opacity-50 text-[var(--brand-black)] font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                                                         disabled={actionLoading || preBillValue <= 0 || (isDriverBilled && !selectedDriverId) || !['BILLING', 'QUALITY_CHECK', 'READY_FOR_RELEASE', 'VEHICLE_RELEASED', 'INVOICED', 'CLOSED'].includes(wo.status)}
-                                                        onClick={() => {
+                                                        onClick={async () => {
                                                             if (isDriverBilled && !selectedDriverId) {
                                                                 toast.error('Please select a driver to connect to this bill');
                                                                 return;
                                                             }
-                                                            doAction(() => generateBill(id!, {
-                                                                hourlyRate: Number(hourlyRate),
-                                                                taxRate: Number(taxRate),
-                                                                taxName,
-                                                                taxProfileId,
-                                                                isDriverBilled,
-                                                                driverId: isDriverBilled ? selectedDriverId : undefined,
-                                                                customerId: isDriverBilled ? selectedCustomerId : undefined
-                                                            }));
+                                                            try {
+                                                                await doAction(async () => {
+                                                                    const generated = await generateBill(id!, {
+                                                                        hourlyRate: Number(hourlyRate),
+                                                                        taxRate: Number(taxRate) || 7,
+                                                                        taxName: taxName || 'ITBMS 7%',
+                                                                        taxProfileId: taxProfileId || undefined,
+                                                                        isDriverBilled,
+                                                                        driverId: isDriverBilled ? selectedDriverId : undefined,
+                                                                        customerId: isDriverBilled ? selectedCustomerId : undefined
+                                                                    });
+                                                                    if (generated) {
+                                                                        setBill(generated);
+                                                                    }
+                                                                });
+                                                                setShowBillModal(true);
+                                                            } catch {
+                                                                // error handled by doAction
+                                                            }
                                                         }}
                                                     >
                                                         {actionLoading ? <Loader2 className="animate-spin" size={20} /> : <Receipt size={20} />}
@@ -3487,340 +3594,583 @@ const WorkOrderDetail = () => {
                 </div>
             )}
 
-            {/* ── Service Bill Modal ── */}
+            {/* ── Service Bill Modal (Printable A4 Invoice Sheet) ── */}
             {showBillModal && bill && (
                 <div 
-                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
+                    id="printable-invoice-modal"
+                    className="fixed inset-0 z-[100] flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md overflow-y-auto animate-fadeIn"
                     onClick={() => setShowBillModal(false)}
                 >
+                    {/* Scoped Print CSS Styles */}
+                    <style>{`
+                        @media print {
+                            body * {
+                                visibility: hidden !important;
+                            }
+                            #printable-invoice-paper, #printable-invoice-paper * {
+                                visibility: visible !important;
+                            }
+                            #printable-invoice-paper {
+                                position: absolute !important;
+                                left: 0 !important;
+                                top: 0 !important;
+                                width: 100% !important;
+                                max-width: 100% !important;
+                                margin: 0 !important;
+                                padding: 12mm 15mm !important;
+                                box-shadow: none !important;
+                                border: none !important;
+                                background: white !important;
+                                color: #000 !important;
+                                -webkit-print-color-adjust: exact !important;
+                                print-color-adjust: exact !important;
+                            }
+                            .no-print {
+                                display: none !important;
+                            }
+                            @page {
+                                size: A4 portrait;
+                                margin: 0;
+                            }
+                        }
+                    `}</style>
+
+                    {/* Modal Floating Toolbar (Hidden on Print) */}
                     <div 
-                        className="bg-[var(--bg-card)] border border-[var(--border-main)] w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                        className="w-full max-w-[850px] mb-3 flex items-center justify-between bg-[#1e293b]/95 border border-white/10 rounded-2xl px-5 py-3 shadow-xl backdrop-blur-md no-print"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* Modal Header */}
-                        <div className="p-6 border-b border-[var(--border-main)] flex items-center justify-between bg-[var(--bg-input)]">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime)] text-[var(--brand-black)] flex items-center justify-center font-bold">
-                                    <Receipt size={22} />
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h2 className="text-lg font-bold text-[var(--text-main)] font-mono">
-                                            {bill.billNumber}
-                                        </h2>
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                            bill.status === 'APPROVED' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                                            bill.status === 'PAID' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
-                                            'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                                        }`}>
-                                            {bill.status}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                                        Generated on {bill.createdAt ? new Date(bill.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                                    </p>
-                                </div>
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-[var(--brand-lime)] text-black flex items-center justify-center font-bold">
+                                <Receipt size={18} />
                             </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => window.print()}
-                                    className="p-2 hover:bg-white/10 text-[var(--text-muted)] hover:text-white rounded-xl transition-colors cursor-pointer"
-                                    title="Print Bill"
-                                >
-                                    <Printer size={18} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowBillModal(false)}
-                                    className="p-2 hover:bg-white/10 text-[var(--text-muted)] hover:text-white rounded-xl transition-colors cursor-pointer"
-                                    title="Close"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Modal Body */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                            {/* Summary Metadata Cards */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div className="p-3.5 bg-white/5 rounded-2xl border border-[var(--border-main)]">
-                                    <p className="text-[10px] text-[var(--text-dim)] uppercase font-bold tracking-widest mb-1">Payment Status</p>
-                                    <p className={`font-bold text-sm ${bill.paymentStatus === 'PAID' ? 'text-green-400' : 'text-amber-400'}`}>
-                                        {bill.paymentStatus || 'UNPAID'}
-                                    </p>
-                                </div>
-                                <div className="p-3.5 bg-white/5 rounded-2xl border border-[var(--border-main)]">
-                                    <p className="text-[10px] text-[var(--text-dim)] uppercase font-bold tracking-widest mb-1">Work Order</p>
-                                    <p className="font-bold text-sm text-[var(--text-main)] font-mono">
-                                        {wo.workOrderNumber || 'N/A'}
-                                    </p>
-                                </div>
-                                <div className="p-3.5 bg-white/5 rounded-2xl border border-[var(--border-main)]">
-                                    <p className="text-[10px] text-[var(--text-dim)] uppercase font-bold tracking-widest mb-1">Vehicle</p>
-                                    <p className="font-bold text-sm text-[var(--text-main)] truncate">
-                                        {(wo.vehicleId as any)?.basicDetails?.make || ''} {(wo.vehicleId as any)?.basicDetails?.model || ''}
-                                    </p>
-                                    <span className="text-[10px] font-mono text-[var(--text-dim)]">
-                                        {(wo.vehicleId as any)?.plateNumber || (wo.vehicleId as any)?.legalDocs?.plateNumber || (wo.vehicleId as any)?.basicDetails?.vin || ''}
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-white font-mono">{bill.invoiceNumber || bill.billNumber || 'Invoice'}</span>
+                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                        bill.status === 'APPROVED' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                                        bill.status === 'PAID' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                                        'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                                    }`}>
+                                        {bill.status}
                                     </span>
                                 </div>
+                                <span className="text-[11px] text-slate-400">Official Workshop Service Invoice Preview</span>
                             </div>
-
-                            {/* Driver Billed & Customer Section */}
-                            {bill.isDriverBilled && (
-                                <div className="p-4 rounded-2xl bg-[var(--brand-lime-alpha)]/10 border border-[var(--brand-lime-alpha)]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-[var(--brand-lime)] text-[var(--brand-black)] flex items-center justify-center font-bold shrink-0">
-                                            <User size={20} />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--brand-lime)]">
-                                                    Driver Billed
-                                                </span>
-                                                {bill.driverId?.driverId && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/20 text-[var(--text-muted)]">
-                                                        {bill.driverId.driverId}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <p className="text-sm font-bold text-[var(--text-main)]">
-                                                {bill.driverId?.personalInfo?.fullName || bill.driverId?.fullName || (typeof bill.driverId === 'string' ? bill.driverId : 'Assigned Driver')}
-                                            </p>
-                                            {bill.driverId?.phone && (
-                                                <p className="text-[11px] text-[var(--text-dim)] flex items-center gap-1 mt-0.5">
-                                                    <Phone size={10} /> {bill.driverId.phone}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {bill.customerId && (
-                                        <div className="sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border-main)]/50">
-                                            <span className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider block">Customer Billing Account</span>
-                                            <p className="text-xs font-semibold text-[var(--text-main)]">
-                                                {bill.customerId?.name || 'Linked Account'}
-                                            </p>
-                                            {bill.customerId?.customerId && (
-                                                <span className="text-[10px] font-mono text-[var(--text-dim)]">
-                                                    ID: {bill.customerId.customerId}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Line Items Table */}
-                            <div className="space-y-3">
-                                <h3 className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-wider flex items-center gap-2">
-                                    <FileText size={14} /> Bill Breakdown Items
-                                </h3>
-                                <div className="border border-[var(--border-main)] rounded-2xl overflow-hidden bg-black/10">
-                                    <table className="w-full text-left text-xs">
-                                        <thead className="bg-white/5 text-[var(--text-dim)] font-bold uppercase text-[10px] tracking-wider">
-                                            <tr>
-                                                <th className="p-3">Description</th>
-                                                <th className="p-3">Type</th>
-                                                <th className="p-3 text-center">Qty / Hrs</th>
-                                                <th className="p-3 text-right">Unit Price</th>
-                                                <th className="p-3 text-right">Total</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-[var(--border-main)]/40 text-[var(--text-main)]">
-                                            {(bill.lineItems || []).map((item: any, i: number) => (
-                                                <tr key={i} className="hover:bg-white/5 transition-colors">
-                                                    <td className="p-3 font-medium">{item.description}</td>
-                                                    <td className="p-3">
-                                                        <span className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
-                                                            item.type === 'LABOUR' ? 'bg-blue-500/20 text-blue-300' :
-                                                            item.type === 'PART' ? 'bg-orange-500/20 text-orange-300' :
-                                                            'bg-white/10 text-[var(--text-muted)]'
-                                                        }`}>
-                                                            {item.type}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-3 text-center font-mono">{item.quantity}</td>
-                                                    <td className="p-3 text-right font-mono">{item.unitPrice?.toLocaleString()} AED</td>
-                                                    <td className="p-3 text-right font-mono font-bold">{item.lineTotal?.toLocaleString()} AED</td>
-                                                </tr>
-                                            ))}
-                                            {(!bill.lineItems || bill.lineItems.length === 0) && (
-                                                <tr>
-                                                    <td colSpan={5} className="p-6 text-center text-[var(--text-dim)]">
-                                                        No individual line items recorded.
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                        <tfoot className="bg-white/5 border-t-2 border-[var(--border-main)] text-xs">
-                                            <tr>
-                                                <td colSpan={4} className="p-3 text-right text-[var(--text-muted)] font-semibold">Subtotal</td>
-                                                <td className="p-3 text-right font-mono font-bold text-[var(--text-main)]">
-                                                    {(bill.subtotal || bill.totalAmount || 0).toLocaleString()} AED
-                                                </td>
-                                            </tr>
-                                            {bill.taxAmount > 0 && (
-                                                <tr>
-                                                    <td colSpan={4} className="p-3 text-right text-[var(--text-muted)]">
-                                                        Tax ({bill.taxName || 'VAT'} {bill.taxRate || 0}%)
-                                                    </td>
-                                                    <td className="p-3 text-right font-mono text-[var(--text-main)]">
-                                                        {bill.taxAmount?.toLocaleString()} AED
-                                                    </td>
-                                                </tr>
-                                            )}
-                                            {bill.discount > 0 && (
-                                                <tr>
-                                                    <td colSpan={4} className="p-3 text-right text-emerald-400">Discount</td>
-                                                    <td className="p-3 text-right font-mono text-emerald-400">
-                                                        -{bill.discount?.toLocaleString()} AED
-                                                    </td>
-                                                </tr>
-                                            )}
-                                            <tr className="bg-[var(--brand-lime)] text-[var(--brand-black)] font-black text-sm">
-                                                <td colSpan={4} className="p-3 text-right uppercase tracking-wider">Total Amount</td>
-                                                <td className="p-3 text-right font-mono font-black text-base">
-                                                    {(bill.totalAmount || 0).toLocaleString()} AED
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-                                </div>
-                            </div>
-
-                            {/* Additional info / Notes if any */}
-                            {bill.notes && (
-                                <div className="p-3.5 rounded-xl bg-white/5 border border-[var(--border-main)] text-xs text-[var(--text-muted)]">
-                                    <span className="text-[10px] uppercase font-bold text-[var(--text-dim)] block mb-1">Notes</span>
-                                    {bill.notes}
-                                </div>
-                            )}
                         </div>
 
-                        {/* Modal Footer */}
-                        <div className="p-4 border-t border-[var(--border-main)] flex items-center justify-between bg-[var(--bg-input)]">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => window.print()}
+                                className="px-4 py-2 bg-[var(--brand-lime)] hover:bg-[#b0cb00] text-black font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md active:scale-95"
+                                title="Print A4 Invoice"
+                            >
+                                <Printer size={15} />
+                                <span>Print Invoice</span>
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => {
                                     setShowBillModal(false);
                                     navigate('/service-bills');
                                 }}
-                                className="px-4 py-2.5 rounded-xl border border-[var(--border-main)] hover:bg-white/5 text-xs font-bold text-[var(--text-main)] flex items-center gap-2 transition-all cursor-pointer"
+                                className="px-3.5 py-2 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                             >
                                 <ExternalLink size={14} />
-                                Open in Bills Module
+                                <span className="hidden sm:inline">Bills Module</span>
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setShowBillModal(false)}
-                                className="btn-secondary !py-2.5 !px-6 text-xs font-bold cursor-pointer"
+                                className="p-2 hover:bg-white/15 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer ml-1"
+                                title="Close"
                             >
-                                Close
+                                <X size={18} />
                             </button>
+                        </div>
+                    </div>
+
+                    {/* The Printable A4 Invoice Paper Container */}
+                    <div 
+                        id="printable-invoice-paper"
+                        className="w-full max-w-[850px] bg-white text-slate-800 shadow-2xl rounded-2xl p-8 sm:p-12 relative overflow-hidden font-sans border border-slate-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Top-Left Corner Accent / Ribbon */}
+                        <div className="absolute top-0 left-0 w-28 h-28 overflow-hidden pointer-events-none no-print">
+                            <div className="absolute top-4 -left-9 w-32 py-1 bg-amber-500 text-white font-bold text-[9px] uppercase tracking-wider text-center -rotate-45 shadow-sm">
+                                {bill.status === 'PAID' ? 'PAID' : 'INVOICE'}
+                            </div>
+                        </div>
+
+                        {/* Top-Right Decorative Header Stripe */}
+                        <div className="absolute top-0 right-0 w-36 h-2 bg-gradient-to-l from-sky-500 via-sky-400 to-transparent pointer-events-none"></div>
+
+                        {/* Header: Logo & Address (Left) + Invoice Title & Dates (Right) */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start gap-6 border-b border-gray-100 pb-8">
+                            {/* Left: OLA WORKSHOP LOGO & SHORT ADDRESS */}
+                            <div>
+                                {/* OLA WORKSHOP LOGO */}
+                                <div className="w-36 h-24 bg-black rounded-xl p-2 flex items-center justify-center shadow-md border border-neutral-800 select-none overflow-hidden">
+                                    <img 
+                                        src={workshopLogo} 
+                                        alt="Ola Cars Workshop" 
+                                        className="w-full h-full object-contain"
+                                    />
+                                </div>
+
+                                {/* OLA WORKSHOP SHORT ADDRESS */}
+                                <div className="mt-3.5 text-xs text-slate-700 leading-relaxed font-sans">
+                                    <div className="font-bold text-slate-900 tracking-wide uppercase text-xs">Arrendadora Ola Cars, S.A.</div>
+                                    <div>Via Tocumen, Don Bosco</div>
+                                    <div>Ciudad de Panamá, Panamá</div>
+                                    <div className="text-[11px] text-slate-500 mt-0.5">RUC: 155711200-2-2022 DV: 44</div>
+                                    <div className="text-[11px] text-slate-500">Tel: +507 833-9090 | taller@olacars.com</div>
+                                </div>
+                            </div>
+
+                            {/* Right: Invoice #, Barcode, Dates */}
+                            <div className="flex flex-col sm:items-end text-left sm:text-right pt-2 sm:pt-0">
+                                <h1 className="text-4xl font-light text-slate-900 tracking-tight">Invoice</h1>
+                                <div className="text-sm font-bold text-slate-900 tracking-wide font-mono mt-1">
+                                    # {bill.invoiceNumber || bill.billNumber || 'INV2026OW5200'}
+                                </div>
+
+                                {/* Barcode Graphic */}
+                                <div className="my-2.5">
+                                    <svg className="h-8 w-44 text-slate-900" viewBox="0 0 176 32" fill="currentColor">
+                                        <rect x="0" y="0" width="3" height="32" />
+                                        <rect x="5" y="0" width="1" height="32" />
+                                        <rect x="8" y="0" width="4" height="32" />
+                                        <rect x="14" y="0" width="2" height="32" />
+                                        <rect x="18" y="0" width="1" height="32" />
+                                        <rect x="21" y="0" width="3" height="32" />
+                                        <rect x="26" y="0" width="2" height="32" />
+                                        <rect x="30" y="0" width="5" height="32" />
+                                        <rect x="37" y="0" width="1" height="32" />
+                                        <rect x="40" y="0" width="3" height="32" />
+                                        <rect x="45" y="0" width="2" height="32" />
+                                        <rect x="49" y="0" width="4" height="32" />
+                                        <rect x="55" y="0" width="1" height="32" />
+                                        <rect x="58" y="0" width="3" height="32" />
+                                        <rect x="63" y="0" width="2" height="32" />
+                                        <rect x="67" y="0" width="5" height="32" />
+                                        <rect x="74" y="0" width="2" height="32" />
+                                        <rect x="78" y="0" width="1" height="32" />
+                                        <rect x="81" y="0" width="4" height="32" />
+                                        <rect x="87" y="0" width="2" height="32" />
+                                        <rect x="91" y="0" width="3" height="32" />
+                                        <rect x="96" y="0" width="1" height="32" />
+                                        <rect x="99" y="0" width="4" height="32" />
+                                        <rect x="105" y="0" width="2" height="32" />
+                                        <rect x="109" y="0" width="1" height="32" />
+                                        <rect x="112" y="0" width="5" height="32" />
+                                        <rect x="119" y="0" width="2" height="32" />
+                                        <rect x="123" y="0" width="3" height="32" />
+                                        <rect x="128" y="0" width="1" height="32" />
+                                        <rect x="131" y="0" width="4" height="32" />
+                                        <rect x="137" y="0" width="2" height="32" />
+                                        <rect x="141" y="0" width="3" height="32" />
+                                        <rect x="146" y="0" width="1" height="32" />
+                                        <rect x="149" y="0" width="4" height="32" />
+                                        <rect x="155" y="0" width="2" height="32" />
+                                        <rect x="159" y="0" width="5" height="32" />
+                                        <rect x="166" y="0" width="2" height="32" />
+                                        <rect x="170" y="0" width="4" height="32" />
+                                    </svg>
+                                </div>
+
+                                {/* Dates */}
+                                <div className="space-y-1 text-xs text-slate-700 mt-1 min-w-[210px]">
+                                    <div className="flex justify-between items-center gap-4">
+                                        <span className="text-slate-500 font-medium">Invoice Date :</span>
+                                        <span className="font-semibold text-slate-900 font-mono">
+                                            {(() => {
+                                                const d = new Date(bill.createdAt || wo.createdAt || Date.now());
+                                                return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                                            })()}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center gap-4">
+                                        <span className="text-slate-500 font-medium">Due Date :</span>
+                                        <span className="font-semibold text-slate-900 font-mono">
+                                            {(() => {
+                                                const d = new Date(bill.dueDate || bill.createdAt || wo.createdAt || Date.now());
+                                                return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                                            })()}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Middle Section: BILLED TO ADDRESS */}
+                        <div className="pt-6 pb-2">
+                            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Bill To</div>
+                            {bill.isDriverBilled && bill.driverId ? (
+                                <div className="text-xs text-slate-700 leading-relaxed">
+                                    <div className="font-bold text-[#2563eb] text-sm tracking-tight uppercase">
+                                        {bill.driverId?.personalInfo?.fullName || bill.driverId?.fullName || (typeof bill.driverId === 'string' ? bill.driverId : 'ARRENDADORA OLA CARS, S.A.')}
+                                    </div>
+                                    <div className="font-bold text-slate-900 mt-1 tracking-wide">
+                                        VEHICLE NO : <span className="font-mono">{(wo.vehicleId as any)?.legalDocs?.registrationNumber || (wo.vehicleId as any)?.plateNumber || (wo.vehicleId as any)?.basicDetails?.vin || 'N/A'}</span>
+                                    </div>
+                                    {bill.driverId?.phone && <div className="text-slate-600">Tel: {bill.driverId.phone}</div>}
+                                    {bill.customerId?.name && <div className="text-slate-600">Account: {bill.customerId.name}</div>}
+                                    <div className="text-slate-500">Panama City, Panama</div>
+                                </div>
+                            ) : (
+                                <div className="text-xs text-slate-700 leading-relaxed">
+                                    <div className="font-bold text-[#2563eb] text-sm tracking-tight uppercase">
+                                        ARRENDADORA OLA CARS, S.A.
+                                    </div>
+                                    <div className="font-bold text-slate-900 mt-1 tracking-wide">
+                                        VEHICLE NO : <span className="font-mono">{(wo.vehicleId as any)?.legalDocs?.registrationNumber || (wo.vehicleId as any)?.plateNumber || (wo.vehicleId as any)?.basicDetails?.vin || 'N/A'}</span>
+                                    </div>
+                                    <div className="text-slate-600">Via Tocumen, Frente a Harinas del Istmo</div>
+                                    <div className="text-slate-600">Don Bosco, Ciudad de Panamá</div>
+                                    <div className="text-slate-500">R.U.C. 155711200-2-2022 D.V. 44</div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* REFFERANCE AREA */}
+                        <div className="py-3 text-xs font-semibold text-slate-800 tracking-wider font-mono uppercase border-b border-gray-100">
+                            {(() => {
+                                const d = new Date(bill.createdAt || wo.createdAt || Date.now());
+                                const dotDate = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+                                const vObj = typeof wo.vehicleId === 'object' ? (wo.vehicleId as any) : null;
+                                const make = (vObj?.basicDetails?.make || '').trim();
+                                const model = (vObj?.basicDetails?.model || '').trim();
+                                const plate = vObj?.legalDocs?.registrationNumber || vObj?.plateNumber || vObj?.basicDetails?.vin || '';
+                                const mileage = wo.odometerAtRelease || wo.odometerAtEntry || vObj?.basicDetails?.currentMileage;
+                                const mileageStr = mileage ? Number(mileage).toLocaleString() : '';
+                                const tag = wo.workOrderType ? `${wo.workOrderType.replace(/_/g, ' ')}` : (wo.workOrderNumber || 'REG');
+
+                                return [dotDate, `${make} ${model}`.trim() || 'VEHICLE', plate, mileageStr, tag].filter(Boolean).join('  ');
+                            })()}
+                        </div>
+
+                        {/* Itemized Table */}
+                        <div className="pt-4">
+                            <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                    <tr className="bg-[#374151] text-white text-[11px] font-bold uppercase tracking-wider">
+                                        <th className="py-2.5 px-3 text-center w-10">#</th>
+                                        <th className="py-2.5 px-3">Item & Description</th>
+                                        <th className="py-2.5 px-3 text-center w-24">Qty</th>
+                                        <th className="py-2.5 px-3 text-right w-24">Rate</th>
+                                        <th className="py-2.5 px-3 text-right w-28">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 text-slate-800 text-xs">
+                                    {(() => {
+                                        const rawItems = bill.lineItems && bill.lineItems.length > 0 
+                                            ? bill.lineItems 
+                                            : [
+                                                ...(wo.parts || []).filter((p: any) => p.status === 'INSTALLED').map((p: any) => ({
+                                                    type: 'PART',
+                                                    description: `${p.partNumber ? `${p.partNumber} - ` : ''}${p.partName}`.toUpperCase(),
+                                                    quantity: p.quantity,
+                                                    unitPrice: p.unitCost,
+                                                    lineTotal: p.totalCost || (p.unitCost * p.quantity)
+                                                })),
+                                                ...((wo.actualLabourHours || 0) > 0 ? [{
+                                                    type: 'LABOUR',
+                                                    description: 'LABOUR CHARGE',
+                                                    quantity: wo.actualLabourHours,
+                                                    unitPrice: hourlyRate || 60,
+                                                    lineTotal: (wo.actualLabourHours || 0) * (hourlyRate || 60)
+                                                }] : [])
+                                            ];
+
+                                        return rawItems.map((item: any, idx: number) => {
+                                            const desc = item.description || '';
+                                            const descLower = desc.toLowerCase();
+                                            let unit = 'pcs';
+                                            let displayName = desc;
+
+                                            if (item.type === 'LABOUR' || descLower.includes('labour')) {
+                                                displayName = 'LABOUR CHARGE';
+                                                unit = 'hrs';
+                                            } else if (descLower.includes('oil') || descLower.includes('5w30') || descLower.includes('fluid') || descLower.includes('coolant') || descLower.includes('gallon') || descLower.includes('tank')) {
+                                                unit = 'LTR';
+                                            } else {
+                                                unit = 'pcs';
+                                            }
+
+                                            return (
+                                                <tr key={idx} className="hover:bg-gray-50/70 transition-colors">
+                                                    <td className="py-3 px-3 text-center text-slate-500 font-medium">{idx + 1}</td>
+                                                    <td className="py-3 px-3 font-medium text-slate-900">{displayName}</td>
+                                                    <td className="py-3 px-3 text-center">
+                                                        <div className="font-mono text-slate-900 font-medium">
+                                                            {Number(item.quantity || 0).toFixed(2)}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-400 font-sans">
+                                                            {unit}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-3 text-right font-mono text-slate-900">
+                                                        {Number(item.unitPrice || 0).toFixed(2)}
+                                                    </td>
+                                                    <td className="py-3 px-3 text-right font-mono font-medium text-slate-900">
+                                                        {Number(item.lineTotal || 0).toFixed(2)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        });
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Totals Area (Right-aligned) */}
+                        <div className="flex justify-end pt-4">
+                            <div className="w-72 space-y-2 text-xs">
+                                <div className="flex justify-between items-center text-slate-600">
+                                    <span>Total Taxable Amount</span>
+                                    <span className="font-mono text-slate-900 font-semibold">
+                                        {Number(bill.subtotal ?? (bill.totalAmount ? (bill.totalAmount - (bill.taxAmount || 0)) : 0)).toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center text-slate-600">
+                                    <span>{bill.taxName || 'ITBMS 7%'} ({bill.taxRate ?? 7}%)</span>
+                                    <span className="font-mono text-slate-900 font-semibold">
+                                        {Number(bill.taxAmount || 0).toFixed(2)}
+                                    </span>
+                                </div>
+                                {Number(bill.discount || 0) > 0 && (
+                                    <div className="flex justify-between items-center text-emerald-600">
+                                        <span>Discount</span>
+                                        <span className="font-mono font-semibold">
+                                            -{Number(bill.discount).toFixed(2)}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between items-center pt-2 border-t border-gray-200 text-slate-900 font-bold text-sm">
+                                    <span>Total</span>
+                                    <span className="font-mono font-black">
+                                        ${Number(bill.totalAmount || 0).toFixed(2)}
+                                    </span>
+                                </div>
+
+                                {/* Highlighted Balance Due Box */}
+                                <div className="mt-2.5 p-3 bg-slate-100 rounded-lg flex justify-between items-center border border-slate-200">
+                                    <span className="font-bold text-slate-800 text-sm">Balance Due</span>
+                                    <span className="font-mono font-black text-slate-900 text-base">
+                                        ${Number(Math.max(0, (bill.totalAmount || 0) - (bill.amountPaid || 0))).toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Notes & Terms & Conditions */}
+                        <div className="pt-8 space-y-4 text-xs text-slate-600 border-t border-gray-100 mt-6">
+                            <div>
+                                <h4 className="font-bold text-slate-800 mb-0.5">Notes</h4>
+                                <p className="text-slate-600">{bill.notes || 'Thanks for your business.'}</p>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-800 mb-0.5">Terms & Conditions</h4>
+                                <p className="text-slate-600">Payment Terms and Late Fee Policy</p>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ── Add Part Quantity Modal ── */}
+            {/* ── Edit Part Quantity Modal ── */}
             {selectedPartForQty && (
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
                     <div className="glass-card max-w-md w-full p-6 border border-[var(--border-main)] rounded-2xl space-y-5 shadow-2xl bg-[#0f172a]/95 text-white">
                         <div className="flex items-center justify-between border-b border-white/10 pb-3">
                             <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                                    <Package size={18} />
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400">
+                                    <Pencil size={18} />
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-bold text-white">Add Quantity</h3>
-                                    <p className="text-xs text-muted-foreground">{selectedPartForQty.partName}</p>
+                                    <h3 className="text-base font-bold text-white">Edit Part Quantity</h3>
+                                    <p className="text-xs text-muted-foreground">{selectedPartForQty.partName} {selectedPartForQty.partNumber ? `(${selectedPartForQty.partNumber})` : ''}</p>
                                 </div>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setSelectedPartForQty(null)}
-                                disabled={addQtySubmitting}
+                                disabled={qtySubmitting}
                                 className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        {/* Part summary stats */}
+                        {/* Part summary & Inventory availability stats */}
                         <div className="grid grid-cols-2 gap-3 text-xs">
                             <div className="p-3 rounded-xl bg-white/5 border border-white/10">
                                 <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider mb-1">Current Assigned</span>
                                 <span className="font-mono text-base font-bold text-white">{selectedPartForQty.quantity}</span>
                             </div>
                             <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                                <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider mb-1">Unit Cost</span>
-                                <span className="font-mono text-base font-bold text-emerald-400">${selectedPartForQty.unitCost.toFixed(2)}</span>
+                                <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider mb-1">Available in Inventory</span>
+                                {checkingStock ? (
+                                    <span className="text-xs text-amber-400 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Verifying stock...</span>
+                                ) : inventoryStockInfo ? (
+                                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                                        <span className={`font-mono text-base font-bold ${inventoryStockInfo.available > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {inventoryStockInfo.available}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">
+                                            ({inventoryStockInfo.onHand} on hand)
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <span className="font-mono text-xs text-slate-400">Non-inventory part</span>
+                                )}
                             </div>
                         </div>
 
-                        {/* Additional Quantity Input */}
+                        {/* Manual Quantity Input */}
                         <div className="space-y-2">
                             <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
-                                <span>Additional Quantity to Add</span>
-                                <span className="text-[10px] text-emerald-400 font-mono">Supports decimals (e.g. 0.5, 1.2)</span>
+                                <span>Quantity (Edit number manually)</span>
+                                <span className="text-[10px] text-amber-400 font-mono">Supports decimals (e.g. 1.5, 2)</span>
                             </label>
                             <input
                                 type="number"
                                 step="any"
                                 min="0.001"
-                                placeholder="e.g. 0.5 or 1.2"
-                                value={additionalQtyInput}
-                                onChange={(e) => setAdditionalQtyInput(e.target.value)}
-                                className="input-field w-full font-mono text-lg font-bold !py-2.5 !px-3"
+                                placeholder="Enter quantity"
+                                value={manualQtyInput}
+                                onChange={(e) => setManualQtyInput(e.target.value)}
+                                className="input-field w-full font-mono text-xl font-bold !py-2.5 !px-3"
                                 autoFocus
                             />
+                            {/* Quick adjust chips */}
+                            <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                                <span className="text-[10px] text-muted-foreground font-medium mr-1">Quick adjust:</span>
+                                {[-1, +0.5, +1, +2, +5].map((step) => (
+                                    <button
+                                        key={step}
+                                        type="button"
+                                        onClick={() => {
+                                            const curr = parseFloat(manualQtyInput) || selectedPartForQty.quantity || 0;
+                                            const nextVal = Math.max(0.1, Math.round((curr + step) * 10) / 10);
+                                            setManualQtyInput(nextVal.toString());
+                                        }}
+                                        className="px-2 py-0.5 text-[11px] rounded bg-white/10 hover:bg-white/20 text-slate-300 font-mono cursor-pointer transition-colors"
+                                    >
+                                        {step > 0 ? `+${step}` : step}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        {/* Calculations preview */}
+                        {/* Calculations & Availability Validation Preview */}
                         {(() => {
-                            const addQty = parseFloat(additionalQtyInput);
-                            const isValid = !isNaN(addQty) && addQty > 0;
-                            const newTotalQty = isValid ? Math.round((selectedPartForQty.quantity + addQty) * 1000) / 1000 : selectedPartForQty.quantity;
-                            const newTotalCost = Math.round((newTotalQty * selectedPartForQty.unitCost) * 100) / 100;
+                            const newQty = parseFloat(manualQtyInput);
+                            const isValid = !isNaN(newQty) && newQty > 0;
+                            const delta = isValid ? Math.round((newQty - selectedPartForQty.quantity) * 1000) / 1000 : 0;
+                            const newTotalCost = isValid ? Math.round((newQty * selectedPartForQty.unitCost) * 100) / 100 : selectedPartForQty.totalCost;
+                            
+                            const isShortage = delta > 0 && inventoryStockInfo && delta > inventoryStockInfo.available;
+                            const isBlocked = Boolean(inventoryStockInfo?.isBlocked);
+
                             return (
-                                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5">
-                                    <div className="flex justify-between text-slate-300">
-                                        <span>Projected Total Quantity:</span>
-                                        <span className="font-mono font-bold text-white">{newTotalQty}</span>
+                                <div className="space-y-2">
+                                    <div className="p-3.5 rounded-xl bg-white/5 border border-white/10 text-xs space-y-1.5">
+                                        <div className="flex justify-between text-slate-300">
+                                            <span>New Total Quantity:</span>
+                                            <span className="font-mono font-bold text-white">{isValid ? newQty : '—'}</span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-300">
+                                            <span>Quantity Difference:</span>
+                                            <span className={`font-mono font-bold ${delta > 0 ? 'text-amber-400' : delta < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
+                                                {delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '0 (No change)'}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-slate-300">
+                                            <span>New Total Cost:</span>
+                                            <span className="font-mono font-bold text-emerald-400">${newTotalCost.toFixed(2)}</span>
+                                        </div>
                                     </div>
-                                    <div className="flex justify-between text-slate-300">
-                                        <span>New Total Cost:</span>
-                                        <span className="font-mono font-bold text-emerald-400">${newTotalCost.toFixed(2)}</span>
-                                    </div>
-                                    <p className="text-[11px] text-amber-300/90 pt-1.5 border-t border-emerald-500/20 flex items-center gap-1.5">
-                                        <AlertTriangle size={13} className="shrink-0 text-amber-400" />
-                                        <span>Adding this quantity will submit the part for <strong>Manager Approval</strong> before inventory stock is deducted.</span>
-                                    </p>
+
+                                    {/* Inventory stock availability validation alert */}
+                                    {isBlocked ? (
+                                        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2">
+                                            <AlertTriangle size={15} className="shrink-0 text-red-400 mt-0.5" />
+                                            <div>
+                                                <strong className="block text-red-200">Part is Blocked in Inventory</strong>
+                                                <span>Reason: {inventoryStockInfo?.blockedReason || 'Admin blocked issuance.'}</span>
+                                            </div>
+                                        </div>
+                                    ) : isShortage ? (
+                                        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2">
+                                            <AlertTriangle size={15} className="shrink-0 text-red-400 mt-0.5" />
+                                            <div>
+                                                <strong className="block text-red-200">Insufficient Inventory Stock</strong>
+                                                <span>
+                                                    Available stock: <strong>{inventoryStockInfo?.available}</strong> units. You need +<strong>{delta}</strong> more units (Shortage: {Math.round((delta - (inventoryStockInfo?.available || 0)) * 1000) / 1000}).
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : delta > 0 ? (
+                                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 space-y-1">
+                                            <div className="flex items-center gap-1.5 font-semibold text-emerald-200">
+                                                <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                                                <span>Stock Verified: {inventoryStockInfo ? `${inventoryStockInfo.available} units available in backend inventory` : 'Available'}</span>
+                                            </div>
+                                            <p className="text-[11px] text-amber-300/90 flex items-center gap-1">
+                                                <AlertTriangle size={12} className="shrink-0 text-amber-400" />
+                                                <span>Adding +{delta} units requires <strong>Manager Approval</strong> before inventory stock is deducted.</span>
+                                            </p>
+                                        </div>
+                                    ) : delta < 0 ? (
+                                        <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-xs text-blue-300 flex items-center gap-2">
+                                            <Info size={14} className="shrink-0 text-blue-400" />
+                                            <span>Reducing quantity by {Math.abs(delta)} unit(s).</span>
+                                        </div>
+                                    ) : null}
                                 </div>
                             );
                         })()}
 
                         {/* Action buttons */}
-                        <div className="flex items-center gap-3 pt-2">
-                            <button
-                                type="button"
-                                disabled={addQtySubmitting}
-                                onClick={() => setSelectedPartForQty(null)}
-                                className="btn-secondary text-xs flex-1 !py-2.5 cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                disabled={addQtySubmitting || !additionalQtyInput || parseFloat(additionalQtyInput) <= 0 || isNaN(parseFloat(additionalQtyInput))}
-                                onClick={handleConfirmAddQty}
-                                className="btn-primary text-xs flex-1 !py-2.5 flex items-center justify-center gap-1.5 font-bold cursor-pointer"
-                            >
-                                {addQtySubmitting ? <Loader2 size={14} className="animate-spin" /> : <><CheckCircle2 size={14} /> Submit for Approval</>}
-                            </button>
-                        </div>
+                        {(() => {
+                            const newQty = parseFloat(manualQtyInput);
+                            const isValid = !isNaN(newQty) && newQty > 0;
+                            const delta = isValid ? Math.round((newQty - selectedPartForQty.quantity) * 1000) / 1000 : 0;
+                            const isShortage = delta > 0 && inventoryStockInfo && delta > inventoryStockInfo.available;
+                            const isBlocked = Boolean(inventoryStockInfo?.isBlocked);
+                            const isSaveDisabled = qtySubmitting || !isValid || delta === 0 || isShortage || isBlocked;
+
+                            return (
+                                <div className="flex items-center gap-3 pt-2">
+                                    <button
+                                        type="button"
+                                        disabled={qtySubmitting}
+                                        onClick={() => setSelectedPartForQty(null)}
+                                        className="btn-secondary text-xs flex-1 !py-2.5 cursor-pointer"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={isSaveDisabled}
+                                        onClick={handleConfirmEditQty}
+                                        className="btn-primary text-xs flex-1 !py-2.5 flex items-center justify-center gap-1.5 font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {qtySubmitting ? (
+                                            <Loader2 size={14} className="animate-spin" />
+                                        ) : isShortage ? (
+                                            'Insufficient Stock'
+                                        ) : (
+                                            <><CheckCircle2 size={14} /> {delta > 0 ? `Save & Request (+${delta})` : 'Update Quantity'}</>
+                                        )}
+                                    </button>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
             )}

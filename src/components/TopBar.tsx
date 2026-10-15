@@ -1,6 +1,7 @@
 import { Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import LanguageSwitcher from './LanguageSwitcher';
+import workshopLogo from '../assets/image.png';
 
 interface TopBarProps {
     onMenuClick: () => void;
@@ -17,14 +18,21 @@ const TopBar = ({ onMenuClick }: TopBarProps) => {
                 borderColor: 'var(--border-main)',
             }}
         >
-            {/* Hamburger for mobile/tablet */}
-            <button
-                onClick={onMenuClick}
-                className="btn-icon lg:hidden"
-                id="topbar-menu-toggle"
-            >
-                <Menu size={20} />
-            </button>
+            {/* Hamburger & Logo for mobile/tablet */}
+            <div className="flex items-center gap-3 lg:hidden">
+                <button
+                    onClick={onMenuClick}
+                    className="btn-icon"
+                    id="topbar-menu-toggle"
+                >
+                    <Menu size={20} />
+                </button>
+                <img 
+                    src={workshopLogo} 
+                    alt="Ola Cars Workshop" 
+                    className="h-8 w-auto max-w-[130px] object-contain" 
+                />
+            </div>
 
             <div className="flex-1" />
 

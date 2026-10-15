@@ -101,13 +101,16 @@
         },
         "types": {
             "preventive": "Preventive Maintenance",
+            "intervalMaintenance": "Interval Maintenance",
+            "interval_maintenance": "Interval Maintenance",
+            "wearItem": "Wear & Tear Maintenance",
+            "wear_item": "Wear & Tear Maintenance",
             "corrective": "Corrective Repair",
             "preEntry": "Pre-Entry Inspection",
             "accident": "Accident Repair",
             "returnInspection": "Return Inspection",
             "recall": "Recall",
             "safetyPrep": "Safety Preparation",
-            "wearItem": "Wear Item Replacement",
             "other": "Others"
         },
         "priorities": {

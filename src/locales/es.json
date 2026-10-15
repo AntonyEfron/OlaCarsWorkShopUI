@@ -84,13 +84,16 @@
         },
         "types": {
             "preventive": "Mantenimiento Preventivo",
+            "intervalMaintenance": "Mantenimiento por Intervalo",
+            "interval_maintenance": "Mantenimiento por Intervalo",
+            "wearItem": "Mantenimiento por Desgaste",
+            "wear_item": "Mantenimiento por Desgaste",
             "corrective": "Reparación Correctiva",
             "preEntry": "Inspección Pre-Entrada",
             "accident": "Reparación por Accidente",
             "returnInspection": "Inspección de Retorno",
             "recall": "Retirada/Recall",
             "safetyPrep": "Preparación de Seguridad",
-            "wearItem": "Reemplazo de Desgaste",
             "other": "Otros"
         },
         "priorities": {

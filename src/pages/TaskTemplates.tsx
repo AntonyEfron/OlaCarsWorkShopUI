@@ -17,8 +17,8 @@ import { getParts, type InventoryPart } from '../services/inventoryService';
 import { getBranchId, getUserRole } from '../utils/auth';
 
 const WO_TYPES = [
-  "PREVENTIVE", "CORRECTIVE", "PRE_ENTRY", "ACCIDENT",
-  "RETURN_INSPECTION", "RECALL", "SAFETY_PREP", "WEAR_ITEM", "OTHER"
+  "PREVENTIVE", "INTERVAL_MAINTENANCE", "WEAR_ITEM", "CORRECTIVE", "PRE_ENTRY", "ACCIDENT",
+  "RETURN_INSPECTION", "RECALL", "SAFETY_PREP", "OTHER"
 ];
 
 const CATEGORIES = ["Mechanical", "Electrical", "Body", "Tyres", "Fluids", "Other"];

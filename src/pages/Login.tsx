@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import loginVideo from "../assets/loginbgvideo.mp4";
+import workshopLogo from "../assets/image.png";
 
 const Login = () => {
   const { t } = useTranslation();
@@ -100,14 +101,14 @@ const Login = () => {
       <div className="w-full max-w-md relative z-10 animate-fadeInUp">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{
-              background: "var(--brand-lime)",
-              boxShadow: "0 0 50px rgba(200, 230, 0, 0.3)",
-            }}
-          >
-            <Wrench size={28} color="#0A0A0A" strokeWidth={2.5} />
+          <div className="flex items-center justify-center mx-auto mb-5">
+            <div className="bg-black/60 p-3 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-md">
+              <img 
+                src={workshopLogo} 
+                alt="Ola Cars Workshop" 
+                className="h-16 w-auto max-w-[240px] object-contain drop-shadow-[0_0_35px_rgba(200,230,0,0.35)]"
+              />
+            </div>
           </div>
           <h1
             className="text-3xl font-bold mb-1 tracking-tight"

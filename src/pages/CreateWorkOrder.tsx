@@ -18,7 +18,8 @@ import {
     Shield,
     Layers,
     FileText,
-    Plus
+    Plus,
+    Clock
 } from 'lucide-react';
 import {
     createWorkOrder,
@@ -32,13 +33,14 @@ import toast from 'react-hot-toast';
 
 const TYPE_ICONS: Record<string, React.ComponentType<any>> = {
     PREVENTIVE: Wrench,
+    INTERVAL_MAINTENANCE: Clock,
+    WEAR_ITEM: Layers,
     CORRECTIVE: AlertTriangle,
     PRE_ENTRY: ClipboardList,
     ACCIDENT: Car,
     RETURN_INSPECTION: RotateCcw,
     RECALL: AlertTriangle,
     SAFETY_PREP: Shield,
-    WEAR_ITEM: Layers,
     OTHER: Wrench,
 };
 
@@ -48,15 +50,16 @@ const CreateWorkOrder = () => {
     const branchId = getBranchId() || '';
 
     const WORK_ORDER_TYPES = [
-        { value: 'PREVENTIVE', label: t('workOrders.types.preventive') },
-        { value: 'CORRECTIVE', label: t('workOrders.types.corrective') },
-        { value: 'PRE_ENTRY', label: t('workOrders.types.preEntry') },
-        { value: 'ACCIDENT', label: t('workOrders.types.accident') },
-        { value: 'RETURN_INSPECTION', label: t('workOrders.types.returnInspection') },
-        { value: 'RECALL', label: t('workOrders.types.recall') },
-        { value: 'SAFETY_PREP', label: t('workOrders.types.safetyPrep') },
-        { value: 'WEAR_ITEM', label: t('workOrders.types.wearItem') },
-        { value: 'OTHER', label: t('workOrders.types.other') },
+        { value: 'PREVENTIVE', label: t('workOrders.types.preventive', 'Preventive Maintenance') },
+        { value: 'INTERVAL_MAINTENANCE', label: t('workOrders.types.intervalMaintenance', 'Interval Maintenance') },
+        { value: 'WEAR_ITEM', label: t('workOrders.types.wearItem', 'Wear & Tear Maintenance') },
+        { value: 'CORRECTIVE', label: t('workOrders.types.corrective', 'Corrective Repair') },
+        { value: 'PRE_ENTRY', label: t('workOrders.types.preEntry', 'Pre-Entry Inspection') },
+        { value: 'ACCIDENT', label: t('workOrders.types.accident', 'Accident Repair') },
+        { value: 'RETURN_INSPECTION', label: t('workOrders.types.returnInspection', 'Return Inspection') },
+        { value: 'RECALL', label: t('workOrders.types.recall', 'Recall') },
+        { value: 'SAFETY_PREP', label: t('workOrders.types.safetyPrep', 'Safety Preparation') },
+        { value: 'OTHER', label: t('workOrders.types.other', 'Others') },
     ];
 
     const PRIORITY_OPTIONS = [
