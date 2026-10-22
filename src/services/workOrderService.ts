@@ -179,6 +179,8 @@ export interface WorkOrderFilters {
     page?: number;
     limit?: number;
     search?: string;
+    startDate?: string;
+    endDate?: string;
 }
 
 export const getWorkOrders = async (filters: WorkOrderFilters = {}): Promise<any> => {

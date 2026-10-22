@@ -10,6 +10,8 @@ import {
     ChevronDown,
     ChevronLeft,
     ChevronRight,
+    Calendar,
+    RotateCcw,
 } from 'lucide-react';
 import {
     getWorkOrders,
@@ -43,6 +45,8 @@ const WorkOrderList = () => {
     const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || '');
     const [priorityFilter, setPriorityFilter] = useState<string>('');
     const [typeFilter, setTypeFilter] = useState<string>(() => searchParams.get('type') || '');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
     const [showFilters, setShowFilters] = useState(() => !!(searchParams.get('status') || searchParams.get('type')));
 
     // Sorting State
@@ -82,7 +86,7 @@ const WorkOrderList = () => {
     // Load work orders when filters or page change
     useEffect(() => {
         loadWorkOrders();
-    }, [statusFilter, priorityFilter, typeFilter, currentPage, debouncedSearchTerm]);
+    }, [statusFilter, priorityFilter, typeFilter, currentPage, debouncedSearchTerm, startDate, endDate]);
 
     const loadWorkOrders = async () => {
         setLoading(true);
@@ -95,6 +99,8 @@ const WorkOrderList = () => {
             if (priorityFilter) filters.priority = priorityFilter;
             if (typeFilter) filters.workOrderType = typeFilter;
             if (debouncedSearchTerm.trim()) filters.search = debouncedSearchTerm.trim();
+            if (startDate) filters.startDate = startDate;
+            if (endDate) filters.endDate = endDate;
 
             const res = await getWorkOrders(filters);
             if (res && res.data) {
@@ -138,6 +144,16 @@ const WorkOrderList = () => {
         return 'N/A';
     };
 
+    const getVehiclePlate = (wo: WorkOrder) => {
+        const v = wo.vehicleId;
+        if (typeof v === 'object' && v !== null) {
+            const docs = (v as Record<string, unknown>).legalDocs as Record<string, unknown> | undefined;
+            const plate = docs?.registrationNumber || (v as any).plateNumber || (v as any).registrationNumber;
+            if (plate) return String(plate).trim();
+        }
+        return '—';
+    };
+
     const getStatusBadgeClass = (status: WorkOrderStatus) => {
         if (status === 'TASKS') return 'badge-blue';
         if (status === 'LABOUR') return 'badge-lime';
@@ -174,6 +190,9 @@ const WorkOrderList = () => {
         } else if (sortBy === 'vehicle') {
             valA = getVehicleLabel(a);
             valB = getVehicleLabel(b);
+        } else if (sortBy === 'plateNumber') {
+            valA = getVehiclePlate(a);
+            valB = getVehiclePlate(b);
         } else if (sortBy === 'type') {
             valA = a.workOrderType || '';
             valB = b.workOrderType || '';
@@ -223,7 +242,7 @@ const WorkOrderList = () => {
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-dim)' }} />
                         <input
                             type="text"
-                            placeholder={t('workOrders.list.searchPlaceholder')}
+                            placeholder="Search by WO#, Plate No., vehicle or fault description..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="input-field pl-10"
@@ -231,51 +250,106 @@ const WorkOrderList = () => {
                         />
                     </div>
                     <button
-                        className={`btn-secondary ${showFilters ? '!border-lime !text-lime' : ''}`}
+                        className={`btn-secondary ${showFilters || startDate || endDate ? '!border-lime !text-lime' : ''}`}
                         onClick={() => setShowFilters(!showFilters)}
-                        style={showFilters ? { borderColor: 'var(--brand-lime)', color: 'var(--brand-lime)' } : {}}
+                        style={showFilters || startDate || endDate ? { borderColor: 'var(--brand-lime)', color: 'var(--brand-lime)' } : {}}
                     >
                         <Filter size={16} />
-                        <span className="hidden sm:inline">{t('common.dashboard')}</span>
+                        <span className="hidden sm:inline">Filters</span>
                         <ChevronDown size={14} className={`transition-transform ${showFilters ? 'rotate-180' : ''}`} />
                     </button>
                 </div>
 
                 {showFilters && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t" style={{ borderColor: 'var(--border-main)' }}>
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                            className="input-field"
-                            id="filter-status"
-                        >
-                            <option value="">{t('common.add').includes('Agre') ? 'Todos los Estados' : 'All Statuses'}</option>
-                            {STATUS_OPTIONS.map((s) => (
-                                <option key={s} value={s}>{formatStatus(s)}</option>
-                            ))}
-                        </select>
-                        <select
-                            value={priorityFilter}
-                            onChange={(e) => { setPriorityFilter(e.target.value); setCurrentPage(1); }}
-                            className="input-field"
-                            id="filter-priority"
-                        >
-                            <option value="">{t('common.add').includes('Agre') ? 'Todas las Prioridades' : 'All Priorities'}</option>
-                            {PRIORITY_OPTIONS.map((p) => (
-                                <option key={p} value={p}>{t(`workOrders.priorities.${p.toLowerCase()}`, { defaultValue: p })}</option>
-                            ))}
-                        </select>
-                        <select
-                            value={typeFilter}
-                            onChange={(e) => { setTypeFilter(e.target.value); setCurrentPage(1); }}
-                            className="input-field"
-                            id="filter-type"
-                        >
-                            <option value="">{t('common.add').includes('Agre') ? 'Todos los Tipos' : 'All Types'}</option>
-                            {TYPE_OPTIONS.map((t_opt) => (
-                                <option key={t_opt} value={t_opt}>{t(`workOrders.types.${t_opt.toLowerCase()}`, { defaultValue: t_opt.replace(/_/g, ' ') })}</option>
-                            ))}
-                        </select>
+                    <div className="pt-3 border-t space-y-3" style={{ borderColor: 'var(--border-main)' }}>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <select
+                                value={statusFilter}
+                                onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+                                className="input-field"
+                                id="filter-status"
+                            >
+                                <option value="">{t('common.add').includes('Agre') ? 'Todos los Estados' : 'All Statuses'}</option>
+                                {STATUS_OPTIONS.map((s) => (
+                                    <option key={s} value={s}>{formatStatus(s)}</option>
+                                ))}
+                            </select>
+                            <select
+                                value={priorityFilter}
+                                onChange={(e) => { setPriorityFilter(e.target.value); setCurrentPage(1); }}
+                                className="input-field"
+                                id="filter-priority"
+                            >
+                                <option value="">{t('common.add').includes('Agre') ? 'Todas las Prioridades' : 'All Priorities'}</option>
+                                {PRIORITY_OPTIONS.map((p) => (
+                                    <option key={p} value={p}>{t(`workOrders.priorities.${p.toLowerCase()}`, { defaultValue: p })}</option>
+                                ))}
+                            </select>
+                            <select
+                                value={typeFilter}
+                                onChange={(e) => { setTypeFilter(e.target.value); setCurrentPage(1); }}
+                                className="input-field"
+                                id="filter-type"
+                            >
+                                <option value="">{t('common.add').includes('Agre') ? 'Todos los Tipos' : 'All Types'}</option>
+                                {TYPE_OPTIONS.map((t_opt) => (
+                                    <option key={t_opt} value={t_opt}>{t(`workOrders.types.${t_opt.toLowerCase()}`, { defaultValue: t_opt.replace(/_/g, ' ') })}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Date Range & Reset */}
+                        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-1 border-t border-[var(--border-main)]/30">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+                                <div className="flex items-center gap-2 flex-1">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 whitespace-nowrap flex items-center gap-1.5">
+                                        <Calendar size={13} className="text-[var(--brand-lime)]" />
+                                        From:
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={startDate}
+                                        onChange={(e) => { setStartDate(e.target.value); setCurrentPage(1); }}
+                                        className="input-field !py-2 text-xs flex-1 cursor-pointer"
+                                        title="Filter work orders created from this date"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2 flex-1">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 whitespace-nowrap flex items-center gap-1.5">
+                                        <Calendar size={13} className="text-[var(--brand-lime)]" />
+                                        To:
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={endDate}
+                                        onChange={(e) => { setEndDate(e.target.value); setCurrentPage(1); }}
+                                        className="input-field !py-2 text-xs flex-1 cursor-pointer"
+                                        title="Filter work orders created up to this date"
+                                    />
+                                </div>
+                            </div>
+
+                            {(searchTerm || statusFilter || priorityFilter || typeFilter || startDate || endDate) && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchTerm('');
+                                        setDebouncedSearchTerm('');
+                                        setStatusFilter('');
+                                        setPriorityFilter('');
+                                        setTypeFilter('');
+                                        setStartDate('');
+                                        setEndDate('');
+                                        setCurrentPage(1);
+                                    }}
+                                    className="btn-secondary !py-2 !px-3 text-xs flex items-center justify-center gap-1.5 self-end md:self-auto hover:text-white cursor-pointer"
+                                    title="Reset all filters"
+                                >
+                                    <RotateCcw size={13} />
+                                    <span>Reset Filters</span>
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
@@ -311,6 +385,12 @@ const WorkOrderList = () => {
                                         <div className="flex items-center">
                                             {t('dashboard.table.vehicle')}
                                             <SortIcon field="vehicle" />
+                                        </div>
+                                    </th>
+                                    <th className="cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('plateNumber')}>
+                                        <div className="flex items-center">
+                                            Plate No.
+                                            <SortIcon field="plateNumber" />
                                         </div>
                                     </th>
                                     <th className="cursor-pointer select-none group hover:text-lime transition-colors" onClick={() => handleSort('type')}>
@@ -352,6 +432,18 @@ const WorkOrderList = () => {
                                         </td>
                                         <td className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>
                                             {getVehicleLabel(wo)}
+                                        </td>
+                                        <td>
+                                            {(() => {
+                                                const plate = getVehiclePlate(wo);
+                                                return plate && plate !== '—' ? (
+                                                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-white/10 text-white border border-white/10 whitespace-nowrap">
+                                                        {plate}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-[var(--text-dim)]">—</span>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="text-xs" style={{ color: 'var(--text-muted)' }}>
                                             {wo.workOrderType.replace(/_/g, ' ')}
