@@ -660,11 +660,15 @@ const WorkOrderDetail = () => {
                 return;
             }
 
-            const missingTaskPhotos = doableTasks.filter(t =>
-                t.status === 'COMPLETED' && !wo?.photos.some(p => p.caption === `TASK_${t._id}`)
-            );
+            const missingTaskPhotos = doableTasks.filter(t => {
+                if (t.status !== 'COMPLETED') return false;
+                const hasOld = wo?.photos.some(p => p.caption === `TASK_${t._id}_OLD` || p.caption === `TASK_${t._id}_DETACHED`);
+                const hasNew = wo?.photos.some(p => p.caption === `TASK_${t._id}_NEW` || p.caption === `TASK_${t._id}_FIXED`);
+                const hasLegacy = wo?.photos.some(p => p.caption === `TASK_${t._id}`);
+                return (!hasOld || !hasNew) && !hasLegacy;
+            });
             if (missingTaskPhotos.length > 0) {
-                toast.error(`Please upload photos for completed tasks: ${missingTaskPhotos.map(t => t.description).join(', ')}`);
+                toast.error(`Please upload both detached old part and new fixed part photos for completed tasks: ${missingTaskPhotos.map(t => t.description).join(', ')}`);
                 setActiveTab('qc');
                 return;
             }
@@ -1488,12 +1492,45 @@ const WorkOrderDetail = () => {
                 const totalPartsCount = activeParts.length;
                 const installedPartsCount = activeParts.filter(p => p.status === 'INSTALLED').length;
 
-                // Photos needed for completed tasks ONLY (parts do not require photos)
-                const completedTaskIds = doableTasks.filter(t => t.status === 'COMPLETED').map(t => `TASK_${t._id}`);
-                const requiredPhotoCaptions = completedTaskIds;
+                // Task Photo Helpers: each completed task requires 2 photos (Detached Old Part & New Fixed Part)
+                const getTaskOldPhoto = (taskId: string) => wo.photos.find(p => p.caption === `TASK_${taskId}_OLD` || p.caption === `TASK_${taskId}_DETACHED`);
+                const getTaskNewPhoto = (taskId: string) => wo.photos.find(p => p.caption === `TASK_${taskId}_NEW` || p.caption === `TASK_${taskId}_FIXED`);
+                const getTaskLegacyPhoto = (taskId: string) => wo.photos.find(p => p.caption === `TASK_${taskId}`);
+                const hasBothTaskPhotos = (taskId: string) => {
+                    const hasOld = !!getTaskOldPhoto(taskId);
+                    const hasNew = !!getTaskNewPhoto(taskId);
+                    if (hasOld && hasNew) return true;
+                    return !!getTaskLegacyPhoto(taskId);
+                };
 
-                const requiredPhotosCount = requiredPhotoCaptions.length;
-                const uploadedPhotosCount = wo.photos.filter(p => p.caption && requiredPhotoCaptions.includes(p.caption)).length;
+                const formatPhotoCaption = (caption?: string) => {
+                    if (!caption) return 'QC Photo';
+                    if (caption.startsWith('TASK_')) {
+                        const isOld = caption.endsWith('_OLD') || caption.endsWith('_DETACHED');
+                        const isNew = caption.endsWith('_NEW') || caption.endsWith('_FIXED');
+                        const rawId = caption.replace('TASK_', '').replace('_OLD', '').replace('_NEW', '').replace('_DETACHED', '').replace('_FIXED', '');
+                        const matchedTask = doableTasks.find(t => t._id === rawId);
+                        const taskName = matchedTask ? matchedTask.description : 'Task';
+                        if (isOld) return `Old Detached Part: ${taskName}`;
+                        if (isNew) return `New Fixed Part: ${taskName}`;
+                        return `Task Verification: ${taskName}`;
+                    }
+                    return caption;
+                };
+
+                const completedTasks = doableTasks.filter(t => t.status === 'COMPLETED');
+                // 2 photos required per completed task (Detached Old Part & New Fixed Part)
+                const requiredPhotosCount = completedTasks.length * 2;
+                let uploadedPhotosCount = 0;
+                completedTasks.forEach(t => {
+                    const oldP = getTaskOldPhoto(t._id);
+                    const newP = getTaskNewPhoto(t._id);
+                    if (oldP) uploadedPhotosCount++;
+                    if (newP) uploadedPhotosCount++;
+                    if (!oldP && !newP && getTaskLegacyPhoto(t._id)) {
+                        uploadedPhotosCount += 2;
+                    }
+                });
 
                 // Vehicle repair verification photos (wo.requiredPhotos)
                 const vehicleRequiredPhotos = wo.requiredPhotos || [];
@@ -1506,7 +1543,7 @@ const WorkOrderDetail = () => {
                 const totalSteps = totalTasksCount + totalPartsCount + requiredPhotosCount;
                 const completedSteps = completedTasksCount + installedPartsCount + uploadedPhotosCount;
                 const overallPercent = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 100;
-                const hasAllTaskPhotos = totalTasksCount > 0 && uploadedPhotosCount === totalTasksCount;
+                const hasAllTaskPhotos = totalTasksCount > 0 && doableTasks.every(t => t.status !== 'COMPLETED' || hasBothTaskPhotos(t._id));
                 const allTasksCompleted = totalTasksCount > 0 && completedTasksCount === totalTasksCount;
                 const allPartsInstalled = totalPartsCount === 0 || installedPartsCount === totalPartsCount;
                 const isQcFullyComplete = allTasksCompleted && hasAllTaskPhotos && allPartsInstalled;
@@ -1517,7 +1554,10 @@ const WorkOrderDetail = () => {
                 const currentTaskParts = currentTask
                     ? activeParts.filter(p => p.taskTemplateId && currentTask.taskTemplateId && p.taskTemplateId.toString() === currentTask.taskTemplateId.toString())
                     : [];
-                const currentTaskPhoto = currentTask ? wo.photos.find(p => p.caption === `TASK_${currentTask._id}`) : undefined;
+                const currentTaskOldPhoto = currentTask ? getTaskOldPhoto(currentTask._id) : undefined;
+                const currentTaskNewPhoto = currentTask ? getTaskNewPhoto(currentTask._id) : undefined;
+                const currentTaskLegacyPhoto = currentTask ? getTaskLegacyPhoto(currentTask._id) : undefined;
+                const currentTaskHasBothPhotos = currentTask ? hasBothTaskPhotos(currentTask._id) : false;
                 const currentTaskIsCompleted = currentTask ? currentTask.status === 'COMPLETED' : false;
                 const currentTaskPendingParts = currentTaskParts.filter(p => p.status !== 'INSTALLED');
                 const currentTaskAllPartsInstalled = currentTaskParts.length === 0 || currentTaskPendingParts.length === 0;
@@ -1734,9 +1774,12 @@ const WorkOrderDetail = () => {
                                             <div className="flex items-center gap-2 min-w-0 flex-1">
                                                 {doableTasks.map((t, idx) => {
                                                     const isCompleted = t.status === 'COMPLETED';
-                                                    const photo = wo.photos.find(p => p.caption === `TASK_${t._id}`);
+                                                    const oldP = getTaskOldPhoto(t._id);
+                                                    const newP = getTaskNewPhoto(t._id);
+                                                    const hasBoth = hasBothTaskPhotos(t._id);
                                                     const isSelected = idx === safeTaskIndex;
-                                                    const isFullyVerified = isCompleted && !!photo;
+                                                    const isFullyVerified = isCompleted && hasBoth;
+                                                    const photoCount = (oldP ? 1 : 0) + (newP ? 1 : 0) + (!oldP && !newP && getTaskLegacyPhoto(t._id) ? 2 : 0);
 
                                                     return (
                                                         <button
@@ -1757,7 +1800,9 @@ const WorkOrderDetail = () => {
                                                                 {isFullyVerified ? (
                                                                     <CheckCircle2 size={13} className="text-emerald-400 stroke-[3]" />
                                                                 ) : isCompleted ? (
-                                                                    <Camera size={13} className="text-amber-400" />
+                                                                    <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono">
+                                                                        <Camera size={11} /> {photoCount}/2
+                                                                    </span>
                                                                 ) : (
                                                                     <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex items-center justify-center text-[9px] font-mono">
                                                                         {idx + 1}
@@ -1773,11 +1818,11 @@ const WorkOrderDetail = () => {
                                             </div>
 
                                             {/* Quick "Next Pending" jumper */}
-                                            {doableTasks.some(t => t.status !== 'COMPLETED' || !wo.photos.some(p => p.caption === `TASK_${t._id}`)) && (
+                                            {doableTasks.some(t => t.status !== 'COMPLETED' || !hasBothTaskPhotos(t._id)) && (
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        const nextPendingIdx = doableTasks.findIndex(t => t.status !== 'COMPLETED' || !wo.photos.some(p => p.caption === `TASK_${t._id}`));
+                                                        const nextPendingIdx = doableTasks.findIndex(t => t.status !== 'COMPLETED' || !hasBothTaskPhotos(t._id));
                                                         if (nextPendingIdx !== -1) setQcCurrentTaskIndex(nextPendingIdx);
                                                     }}
                                                     className="text-[10px] font-bold text-[var(--brand-lime)] hover:underline shrink-0 px-2 py-1 bg-white/5 rounded-md border border-[var(--brand-lime)]/30 cursor-pointer"
@@ -1841,10 +1886,10 @@ const WorkOrderDetail = () => {
                                                     </button>
                                                 </div>
 
-                                                {/* Content Area: Step 1 (Parts) + Step 2 (Photo Upload) */}
-                                                <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                                {/* Content Area: Step 1 (Parts) + Step 2 (Photo Upload: Detached Old Part & New Fixed Part) */}
+                                                <div className="p-4 sm:p-6 grid grid-cols-1 xl:grid-cols-12 gap-6">
                                                     {/* LEFT COLUMN: Step 1 Parts Verification */}
-                                                    <div className="lg:col-span-7 space-y-4">
+                                                    <div className="xl:col-span-5 space-y-4">
                                                         <div className="flex items-center justify-between border-b border-[var(--border-main)]/30 pb-2.5">
                                                             <div className="flex items-center gap-2">
                                                                 <div className="w-6 h-6 rounded-md bg-blue-500/10 text-blue-400 flex items-center justify-center">
@@ -1956,130 +2001,288 @@ const WorkOrderDetail = () => {
                                                         )}
                                                     </div>
 
-                                                    {/* RIGHT COLUMN: Step 2 Photo Proof Upload */}
-                                                    <div className="lg:col-span-5 space-y-4">
-                                                        <div className="border-b border-[var(--border-main)]/30 pb-2.5">
+                                                    {/* RIGHT COLUMN: Step 2 Photo Proof Upload (Old Detached Part & New Fixed Part) */}
+                                                    <div className="xl:col-span-7 space-y-4">
+                                                        <div className="flex items-center justify-between border-b border-[var(--border-main)]/30 pb-2.5">
                                                             <div className="flex items-center gap-2">
                                                                 <div className="w-6 h-6 rounded-md bg-amber-500/10 text-amber-400 flex items-center justify-center">
                                                                     <Camera size={12} />
                                                                 </div>
                                                                 <div>
                                                                     <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                                                                        2. Task Verification Photo
+                                                                        2. Task Verification Photos (2 Required)
                                                                     </h4>
                                                                     <p className="text-[10px] text-[var(--text-dim)]">
-                                                                        Capture photo proof showing completed repair work for this task.
+                                                                        Detached old part photo &amp; new fixed part photo
                                                                     </p>
                                                                 </div>
+                                                            </div>
+
+                                                            <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full border ${
+                                                                currentTaskHasBothPhotos
+                                                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                                                    : (currentTaskOldPhoto || currentTaskNewPhoto)
+                                                                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                                                    : 'bg-white/5 text-[var(--text-dim)] border-white/10'
+                                                            }`}>
+                                                                {currentTaskHasBothPhotos
+                                                                    ? '2 / 2 Attached'
+                                                                    : (currentTaskOldPhoto || currentTaskNewPhoto)
+                                                                    ? '1 / 2 Attached'
+                                                                    : '0 / 2 Attached'}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Legacy Photo Banner if present */}
+                                                        {currentTaskLegacyPhoto && !currentTaskOldPhoto && !currentTaskNewPhoto && (
+                                                            <div className="p-2.5 px-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs flex items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-2 truncate">
+                                                                    <Info size={14} className="shrink-0" />
+                                                                    <span className="truncate">Legacy photo attached. You can upload dedicated old &amp; new photos below.</span>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setPreviewPhoto({ url: currentTaskLegacyPhoto.url, caption: `${currentTask.description} (Legacy)`, stage: 'QC Task Proof' })}
+                                                                    className="text-[10px] underline font-bold shrink-0 cursor-pointer"
+                                                                >
+                                                                    View Legacy
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Two Photo Verification Cards Grid */}
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            {/* Card 1: Detached Old Part Image */}
+                                                            <div className="space-y-2">
+                                                                <div className="flex items-center justify-between px-0.5">
+                                                                    <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wide">
+                                                                        <Wrench size={12} className="text-amber-400" /> Detached Old Part
+                                                                    </span>
+                                                                    <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                                                                        currentTaskOldPhoto ? 'bg-amber-500/20 text-amber-300' : 'text-[var(--text-dim)]'
+                                                                    }`}>
+                                                                        {currentTaskOldPhoto ? '✓ Uploaded' : 'Required'}
+                                                                    </span>
+                                                                </div>
+
+                                                                {currentTaskOldPhoto ? (
+                                                                    <div className="glass-card aspect-[4/3] rounded-2xl overflow-hidden border border-amber-500/40 relative group shadow-lg">
+                                                                        <img
+                                                                            src={currentTaskOldPhoto.url}
+                                                                            alt="Detached Old Part"
+                                                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                                        />
+                                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent flex flex-col justify-between p-3">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="badge text-[9px] bg-amber-500/30 text-amber-300 border border-amber-500/50 font-bold font-mono">
+                                                                                    Old Part Removed
+                                                                                </span>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setPreviewPhoto({ url: currentTaskOldPhoto.url, caption: `Detached Old Part: ${currentTask.description}`, stage: 'QC Task Proof' })}
+                                                                                    className="w-7 h-7 rounded-lg bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all cursor-pointer"
+                                                                                    title="View Fullscreen"
+                                                                                >
+                                                                                    <Maximize2 size={13} />
+                                                                                </button>
+                                                                            </div>
+
+                                                                            <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-white/10">
+                                                                                <div className="text-[9px] text-white/70 font-mono truncate">
+                                                                                    {currentTaskOldPhoto.uploadedAt ? new Date(currentTaskOldPhoto.uploadedAt).toLocaleTimeString() : 'Verified'}
+                                                                                </div>
+                                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        disabled={actionLoading}
+                                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}_OLD` })}
+                                                                                        className="px-2 py-1 rounded-md bg-blue-500/80 hover:bg-blue-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                                        title="Retake old part photo"
+                                                                                    >
+                                                                                        <Camera size={11} /> Retake
+                                                                                    </button>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        disabled={actionLoading}
+                                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}_OLD` })}
+                                                                                        className="px-2 py-1 rounded-md bg-amber-500/80 hover:bg-amber-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                                        title="Upload different old part photo"
+                                                                                    >
+                                                                                        <Upload size={11} /> Change
+                                                                                    </button>
+                                                                                    {!isReleasedOrLater && (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            disabled={actionLoading}
+                                                                                            onClick={(e) => {
+                                                                                                e.preventDefault();
+                                                                                                if (window.confirm("Delete detached old part verification photo?")) {
+                                                                                                    doAction(() => removePhoto(id!, currentTaskOldPhoto._id));
+                                                                                                }
+                                                                                            }}
+                                                                                            className="w-6 h-6 rounded-md bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer"
+                                                                                            title="Delete Photo"
+                                                                                        >
+                                                                                            <Trash2 size={11} />
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="aspect-[4/3] rounded-2xl border-2 border-dashed border-amber-500/35 bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent p-4 flex flex-col items-center justify-center text-center space-y-2 relative group hover:border-amber-500/60 transition-all">
+                                                                        <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shadow-md">
+                                                                            <Wrench size={18} />
+                                                                        </div>
+                                                                        <div className="space-y-0.5">
+                                                                            <p className="text-xs font-black text-amber-300">
+                                                                                Old Part Image
+                                                                            </p>
+                                                                            <p className="text-[10px] text-[var(--text-muted)] line-clamp-2 px-1">
+                                                                                Photo of removed / replaced part
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="flex gap-2 w-full pt-1">
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={actionLoading}
+                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}_OLD` })}
+                                                                                className="flex-1 py-2 px-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                                            >
+                                                                                <Camera size={12} /> Camera
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={actionLoading}
+                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}_OLD` })}
+                                                                                className="flex-1 py-2 px-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                                            >
+                                                                                <Upload size={12} /> Upload
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Card 2: New Fixed Part Image */}
+                                                            <div className="space-y-2">
+                                                                <div className="flex items-center justify-between px-0.5">
+                                                                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wide">
+                                                                        <CheckCircle2 size={12} className="text-emerald-400" /> New Fixed Part
+                                                                    </span>
+                                                                    <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                                                                        currentTaskNewPhoto ? 'bg-emerald-500/20 text-emerald-300' : 'text-[var(--text-dim)]'
+                                                                    }`}>
+                                                                        {currentTaskNewPhoto ? '✓ Uploaded' : 'Required'}
+                                                                    </span>
+                                                                </div>
+
+                                                                {currentTaskNewPhoto ? (
+                                                                    <div className="glass-card aspect-[4/3] rounded-2xl overflow-hidden border border-emerald-500/40 relative group shadow-lg">
+                                                                        <img
+                                                                            src={currentTaskNewPhoto.url}
+                                                                            alt="New Fixed Part"
+                                                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                                        />
+                                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent flex flex-col justify-between p-3">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="badge text-[9px] bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 font-bold font-mono">
+                                                                                    New Part Installed
+                                                                                </span>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setPreviewPhoto({ url: currentTaskNewPhoto.url, caption: `New Fixed Part: ${currentTask.description}`, stage: 'QC Task Proof' })}
+                                                                                    className="w-7 h-7 rounded-lg bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all cursor-pointer"
+                                                                                    title="View Fullscreen"
+                                                                                >
+                                                                                    <Maximize2 size={13} />
+                                                                                </button>
+                                                                            </div>
+
+                                                                            <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-white/10">
+                                                                                <div className="text-[9px] text-white/70 font-mono truncate">
+                                                                                    {currentTaskNewPhoto.uploadedAt ? new Date(currentTaskNewPhoto.uploadedAt).toLocaleTimeString() : 'Verified'}
+                                                                                </div>
+                                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        disabled={actionLoading}
+                                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}_NEW` })}
+                                                                                        className="px-2 py-1 rounded-md bg-blue-500/80 hover:bg-blue-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                                        title="Retake new fixed part photo"
+                                                                                    >
+                                                                                        <Camera size={11} /> Retake
+                                                                                    </button>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        disabled={actionLoading}
+                                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}_NEW` })}
+                                                                                        className="px-2 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                                        title="Upload different new part photo"
+                                                                                    >
+                                                                                        <Upload size={11} /> Change
+                                                                                    </button>
+                                                                                    {!isReleasedOrLater && (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            disabled={actionLoading}
+                                                                                            onClick={(e) => {
+                                                                                                e.preventDefault();
+                                                                                                if (window.confirm("Delete new fixed part verification photo?")) {
+                                                                                                    doAction(() => removePhoto(id!, currentTaskNewPhoto._id));
+                                                                                                }
+                                                                                            }}
+                                                                                            className="w-6 h-6 rounded-md bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer"
+                                                                                            title="Delete Photo"
+                                                                                        >
+                                                                                            <Trash2 size={11} />
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="aspect-[4/3] rounded-2xl border-2 border-dashed border-emerald-500/35 bg-gradient-to-b from-emerald-500/10 via-emerald-500/5 to-transparent p-4 flex flex-col items-center justify-center text-center space-y-2 relative group hover:border-emerald-500/60 transition-all">
+                                                                        <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shadow-md">
+                                                                            <Sparkles size={18} />
+                                                                        </div>
+                                                                        <div className="space-y-0.5">
+                                                                            <p className="text-xs font-black text-emerald-300">
+                                                                                New Part Image
+                                                                            </p>
+                                                                            <p className="text-[10px] text-[var(--text-muted)] line-clamp-2 px-1">
+                                                                                Photo of installed replacement / fix
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="flex gap-2 w-full pt-1">
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={actionLoading}
+                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}_NEW` })}
+                                                                                className="flex-1 py-2 px-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                                            >
+                                                                                <Camera size={12} /> Camera
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={actionLoading}
+                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}_NEW` })}
+                                                                                className="flex-1 py-2 px-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                                            >
+                                                                                <Upload size={12} /> Upload
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
 
-                                                        {/* Photo Container */}
-                                                        {currentTaskPhoto ? (
-                                                            /* Photo already uploaded */
-                                                            <div className="glass-card aspect-[16/11] rounded-2xl overflow-hidden border border-emerald-500/40 relative group shadow-lg">
-                                                                <img
-                                                                    src={currentTaskPhoto.url}
-                                                                    alt="Task QC Proof"
-                                                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                                                                />
-                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-between p-3">
-                                                                    <div className="flex items-center justify-between">
-                                                                        <span className="badge badge-lime text-[9px] bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 font-bold font-mono">
-                                                                            ✓ QC Photo Attached
-                                                                        </span>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setPreviewPhoto({ url: currentTaskPhoto.url, caption: currentTask.description, stage: 'QC Task Proof' })}
-                                                                            className="w-7 h-7 rounded-lg bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all cursor-pointer"
-                                                                            title="View Fullscreen"
-                                                                        >
-                                                                            <Maximize2 size={13} />
-                                                                        </button>
-                                                                    </div>
-
-                                                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
-                                                                        <div className="text-[9px] text-white/70 font-mono">
-                                                                            {currentTaskPhoto.uploadedAt ? new Date(currentTaskPhoto.uploadedAt).toLocaleTimeString() : 'Verified'}
-                                                                        </div>
-                                                                        <div className="flex items-center gap-1.5">
-                                                                            <button
-                                                                                type="button"
-                                                                                disabled={actionLoading}
-                                                                                onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}` })}
-                                                                                className="px-2 py-1 rounded-md bg-blue-500/80 hover:bg-blue-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                                                                                title="Retake photo"
-                                                                            >
-                                                                                <Camera size={11} /> Retake
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                disabled={actionLoading}
-                                                                                onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}` })}
-                                                                                className="px-2 py-1 rounded-md bg-orange-500/80 hover:bg-orange-600 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                                                                                title="Upload different photo"
-                                                                            >
-                                                                                <Upload size={11} /> Change
-                                                                            </button>
-                                                                            {!isReleasedOrLater && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    disabled={actionLoading}
-                                                                                    onClick={(e) => {
-                                                                                        e.preventDefault();
-                                                                                        if (window.confirm("Delete this verification photo?")) {
-                                                                                            doAction(() => removePhoto(id!, currentTaskPhoto._id));
-                                                                                        }
-                                                                                    }}
-                                                                                    className="w-6 h-6 rounded-md bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer"
-                                                                                    title="Delete Photo"
-                                                                                >
-                                                                                    <Trash2 size={11} />
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            /* Photo missing: capture card */
-                                                            <div className="aspect-[16/11] rounded-2xl border-2 border-dashed border-amber-500/30 bg-gradient-to-b from-amber-500/5 to-transparent p-5 flex flex-col items-center justify-center text-center space-y-3 relative group hover:border-amber-500/50 transition-all">
-                                                                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shadow-md">
-                                                                    <Camera size={22} className="animate-pulse" />
-                                                                </div>
-                                                                <div className="space-y-0.5">
-                                                                    <p className="text-xs font-extrabold text-amber-300 uppercase tracking-wide">
-                                                                        Photo Evidence Required
-                                                                    </p>
-                                                                    <p className="text-[10px] text-[var(--text-muted)] max-w-xs">
-                                                                        Take or upload a clear photo of the inspected/repaired work for verification approval.
-                                                                    </p>
-                                                                </div>
-
-                                                                <div className="flex gap-2 w-full max-w-xs mt-1">
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={actionLoading}
-                                                                        onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${currentTask._id}` })}
-                                                                        className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all cursor-pointer"
-                                                                    >
-                                                                        <Camera size={13} className="stroke-[2.5]" /> Camera
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={actionLoading}
-                                                                        onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${currentTask._id}` })}
-                                                                        className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
-                                                                    >
-                                                                        <Upload size={13} className="stroke-[2.5]" /> Upload
-                                                                    </button>
-                                                                </div>
-
-                                                                {!currentTaskIsCompleted && (
-                                                                    <span className="text-[9px] text-amber-400/80 italic">
-                                                                        Note: Task is still marked Pending. Remember to mark it Completed once verified.
-                                                                    </span>
-                                                                )}
+                                                        {!currentTaskIsCompleted && (
+                                                            <div className="p-2 px-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-bold flex items-center gap-2">
+                                                                <AlertCircle size={13} className="shrink-0" />
+                                                                <span>Task is pending completion. Upload both photos and click "Mark Task Completed".</span>
                                                             </div>
                                                         )}
                                                     </div>
@@ -2107,7 +2310,7 @@ const WorkOrderDetail = () => {
                                                             type="button"
                                                             onClick={() => setQcCurrentTaskIndex(safeTaskIndex + 1)}
                                                             className={`text-xs font-black flex items-center gap-1.5 py-2 px-5 rounded-xl transition-all cursor-pointer ${
-                                                                currentTaskIsCompleted && !!currentTaskPhoto
+                                                                currentTaskIsCompleted && currentTaskHasBothPhotos
                                                                     ? 'btn-primary shadow-lg shadow-[var(--brand-lime)]/20'
                                                                     : 'btn-secondary'
                                                             }`}
@@ -2132,10 +2335,13 @@ const WorkOrderDetail = () => {
                                     <div className="space-y-4">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             {doableTasks.map((task, tIndex) => {
-                                                const photo = wo.photos.find(p => p.caption === `TASK_${task._id}`);
+                                                const oldPhoto = getTaskOldPhoto(task._id);
+                                                const newPhoto = getTaskNewPhoto(task._id);
+                                                const legacyPhoto = getTaskLegacyPhoto(task._id);
+                                                const hasBothPhotos = (!!oldPhoto && !!newPhoto) || !!legacyPhoto;
                                                 const isCompleted = task.status === 'COMPLETED';
                                                 const taskParts = activeParts.filter(p => p.taskTemplateId && task.taskTemplateId && p.taskTemplateId.toString() === task.taskTemplateId.toString());
-                                                const isFullyDone = isCompleted && !!photo;
+                                                const isFullyDone = isCompleted && hasBothPhotos;
 
                                                 return (
                                                     <div
@@ -2237,46 +2443,111 @@ const WorkOrderDetail = () => {
                                                             </div>
                                                         )}
 
-                                                        {/* Task Photo in Overview Card */}
-                                                        <div className="pt-2 border-t border-[var(--border-main)]/30 flex items-center justify-between gap-2">
-                                                            {photo ? (
-                                                                <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                                    <img
-                                                                        src={photo.url}
-                                                                        alt="Proof"
-                                                                        onClick={() => setPreviewPhoto({ url: photo.url, caption: task.description, stage: 'QC Task Proof' })}
-                                                                        className="w-10 h-10 rounded-lg object-cover border border-emerald-500/40 cursor-zoom-in"
-                                                                    />
-                                                                    <div className="truncate">
-                                                                        <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
-                                                                            <CheckCircle2 size={11} /> Photo Verified
-                                                                        </span>
-                                                                        <span className="text-[9px] text-[var(--text-dim)] font-mono block">Click to enlarge</span>
+                                                        {/* Task Photos in Overview Card: Old Detached & New Fixed */}
+                                                        <div className="pt-2 border-t border-[var(--border-main)]/30 space-y-2">
+                                                            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--text-dim)]">
+                                                                <span>Verification Photos (2 Types)</span>
+                                                                <span className={`font-mono px-1.5 py-0.2 rounded text-[9px] ${
+                                                                    hasBothPhotos ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                                                                }`}>
+                                                                    {hasBothPhotos ? '2/2 Done' : (oldPhoto || newPhoto ? '1/2 Done' : '0/2 Done')}
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                {/* Old Detached Part */}
+                                                                <div className={`p-2 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                                                                    oldPhoto ? 'border-amber-500/40 bg-amber-500/5' : 'border-dashed border-amber-500/30 bg-white/[0.01]'
+                                                                }`}>
+                                                                    <div className="flex items-center gap-2 min-w-0">
+                                                                        {oldPhoto ? (
+                                                                            <img
+                                                                                src={oldPhoto.url}
+                                                                                alt="Old Part"
+                                                                                onClick={() => setPreviewPhoto({ url: oldPhoto.url, caption: `Detached Old Part: ${task.description}`, stage: 'QC Task Proof' })}
+                                                                                className="w-9 h-9 rounded-lg object-cover border border-amber-500/40 cursor-zoom-in shrink-0"
+                                                                            />
+                                                                        ) : (
+                                                                            <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                                                                                <Wrench size={13} />
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="truncate">
+                                                                            <span className="text-[10px] font-bold text-white block truncate">
+                                                                                Old Part
+                                                                            </span>
+                                                                            <span className={`text-[9px] font-mono block ${oldPhoto ? 'text-amber-400 font-bold' : 'text-[var(--text-dim)]'}`}>
+                                                                                {oldPhoto ? '✓ Attached' : 'Missing'}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-1 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}_OLD` })}
+                                                                            className="p-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white transition-colors cursor-pointer"
+                                                                            title="Camera: Old Detached Part"
+                                                                        >
+                                                                            <Camera size={11} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}_OLD` })}
+                                                                            className="p-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-white transition-colors cursor-pointer"
+                                                                            title="Upload: Old Detached Part"
+                                                                        >
+                                                                            <Upload size={11} />
+                                                                        </button>
                                                                     </div>
                                                                 </div>
-                                                            ) : (
-                                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400">
-                                                                    <Camera size={13} /> Photo Missing
-                                                                </div>
-                                                            )}
 
-                                                            <div className="flex gap-1.5">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                    className="p-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white transition-colors cursor-pointer"
-                                                                    title="Camera"
-                                                                >
-                                                                    <Camera size={12} />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}` })}
-                                                                    className="p-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500 text-orange-300 hover:text-white transition-colors cursor-pointer"
-                                                                    title="Upload"
-                                                                >
-                                                                    <Upload size={12} />
-                                                                </button>
+                                                                {/* New Fixed Part */}
+                                                                <div className={`p-2 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                                                                    newPhoto ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-dashed border-emerald-500/30 bg-white/[0.01]'
+                                                                }`}>
+                                                                    <div className="flex items-center gap-2 min-w-0">
+                                                                        {newPhoto ? (
+                                                                            <img
+                                                                                src={newPhoto.url}
+                                                                                alt="New Part"
+                                                                                onClick={() => setPreviewPhoto({ url: newPhoto.url, caption: `New Fixed Part: ${task.description}`, stage: 'QC Task Proof' })}
+                                                                                className="w-9 h-9 rounded-lg object-cover border border-emerald-500/40 cursor-zoom-in shrink-0"
+                                                                            />
+                                                                        ) : (
+                                                                            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                                                                                <Sparkles size={13} />
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="truncate">
+                                                                            <span className="text-[10px] font-bold text-white block truncate">
+                                                                                New Part
+                                                                            </span>
+                                                                            <span className={`text-[9px] font-mono block ${newPhoto ? 'text-emerald-400 font-bold' : 'text-[var(--text-dim)]'}`}>
+                                                                                {newPhoto ? '✓ Attached' : 'Missing'}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-1 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => triggerCamera({ stage: 'QC', label: `TASK_${task._id}_NEW` })}
+                                                                            className="p-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white transition-colors cursor-pointer"
+                                                                            title="Camera: New Fixed Part"
+                                                                        >
+                                                                            <Camera size={11} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => triggerUpload({ stage: 'QC', label: `TASK_${task._id}_NEW` })}
+                                                                            className="p-1.5 rounded-md bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-white transition-colors cursor-pointer"
+                                                                            title="Upload: New Fixed Part"
+                                                                        >
+                                                                            <Upload size={11} />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -2513,7 +2784,7 @@ const WorkOrderDetail = () => {
                                     </div>
 
                                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                                        {wo.photos.filter(p => !vehicleRequiredPhotos.some(rp => rp.label === p.caption) && !doableTasks.some(t => p.caption === `TASK_${t._id}`)).map((p) => (
+                                        {wo.photos.filter(p => !vehicleRequiredPhotos.some(rp => rp.label === p.caption) && !p.caption?.startsWith('TASK_')).map((p) => (
                                             <div key={p._id} className="relative aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] group hover:border-[var(--brand-lime)] transition-all">
                                                 <img
                                                     src={p.url}
@@ -2699,7 +2970,7 @@ const WorkOrderDetail = () => {
                                             {wo.photos.map((photo) => (
                                                 <div
                                                     key={photo._id}
-                                                    onClick={() => setPreviewPhoto({ url: photo.url, caption: photo.caption || 'QC Photo', stage: photo.stage || 'QC' })}
+                                                    onClick={() => setPreviewPhoto({ url: photo.url, caption: formatPhotoCaption(photo.caption), stage: photo.stage || 'QC' })}
                                                     className="aspect-square rounded-xl overflow-hidden border border-[var(--border-main)] hover:border-[var(--brand-lime)] transition-all relative group cursor-zoom-in"
                                                 >
                                                     <img src={photo.url} alt="QC" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
