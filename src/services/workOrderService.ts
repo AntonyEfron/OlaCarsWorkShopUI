@@ -154,6 +154,20 @@ export const createWorkOrder = async (payload: CreateWorkOrderPayload): Promise<
     return response.data.data || response.data;
 };
 
+export interface UpdateWorkOrderPayload {
+    workOrderType?: WorkOrderType;
+    priority?: Priority;
+    faultDescription?: string;
+    odometerAtEntry?: number;
+    notes?: string;
+    requiredPhotos?: { label: string; description?: string; stage: string; isMandatory: boolean }[];
+}
+
+export const updateWorkOrder = async (id: string, payload: UpdateWorkOrderPayload): Promise<WorkOrder> => {
+    const response = await api.put(`/api/work-orders/${id}`, payload);
+    return response.data.data || response.data;
+};
+
 // ── Get Work Orders ──────────────────────────────────────────────────
 
 export interface WorkOrderFilters {

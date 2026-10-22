@@ -27,14 +27,16 @@ import {
 } from '../services/vehicleService';
 import toast from 'react-hot-toast';
 import workshopLogo from '../assets/image.png';
+import SearchableInventoryPartSelect from '../components/SearchableInventoryPartSelect';
+import ConfirmAddPartModal from '../components/ConfirmAddPartModal';
 
 type Tab = 'tasks' | 'labour' | 'qc' | 'billing';
 
 const ALLOWED_TRANSITIONS: Partial<Record<WorkOrderStatus, WorkOrderStatus[]>> = {
     TASKS: ['LABOUR', 'CANCELLED'],
-    LABOUR: ['QC_PHOTOS', 'CANCELLED'],
+    LABOUR: ['QC_PHOTOS', 'TASKS', 'CANCELLED'],
     QC_PHOTOS: ['BILLING', 'LABOUR', 'CANCELLED'],
-    BILLING: [],
+    BILLING: ['QC_PHOTOS'],
 };
 
 const normalizeStatus = (status?: string): WorkOrderStatus => {
@@ -89,6 +91,7 @@ const WorkOrderDetail = () => {
     const [partForm, setPartForm] = useState<AddPartPayload>({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
     const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
     const [selectedInventoryPart, setSelectedInventoryPart] = useState<InventoryPart | null>(null);
+    const [showConfirmAddPartModal, setShowConfirmAddPartModal] = useState(false);
     const [partsLoading, setPartsLoading] = useState(false);
     const user = getUser();
     const branchId = (user?.branchId as string) || '';
@@ -474,71 +477,18 @@ const WorkOrderDetail = () => {
         }
     }, [wo?.serviceBillId, bill]);
 
-    // Load inventory parts for the dropdown
+    // Load inventory parts for the dropdown (all active branch parts accessible)
     useEffect(() => {
         const woBranchId = typeof wo?.branchId === 'object' ? (wo.branchId as any)?._id : wo?.branchId;
         const fetchBranchId = woBranchId || branchId;
         if (fetchBranchId) {
             setPartsLoading(true);
             getParts({ branchId: fetchBranchId }).then(parts => {
-                const vehicle = wo?.vehicleId as any;
-                const rawMake = (vehicle?.basicDetails?.make || '').toLowerCase().trim();
-                const rawModel = (vehicle?.basicDetails?.model || '').toLowerCase().trim();
-
-                const makeClean = rawMake.replace(/[^a-z0-9]/g, '');
-                const modelClean = rawModel.replace(/[^a-z0-9]/g, '');
-
-                let canonicalMake = makeClean;
-                if (makeClean.includes('jetu') || makeClean.includes('jetour')) canonicalMake = 'jetour';
-                else if (makeClean.includes('gell') || makeClean.includes('geel')) canonicalMake = 'geely';
-                else if (makeClean.includes('soue')) canonicalMake = 'soueast';
-                else if (makeClean.includes('tiggo') || makeClean.includes('cher')) canonicalMake = 'chery';
-                else if (makeClean.includes('kia')) canonicalMake = 'kia';
-                else if (makeClean.includes('honda')) canonicalMake = 'honda';
-
-                let canonicalModel = modelClean;
-                if (modelClean.includes('brv')) canonicalModel = 'brv';
-                else if (modelClean.includes('x70')) canonicalModel = 'x70';
-                else if (modelClean.includes('s07')) canonicalModel = 's07';
-                else if (modelClean.includes('okvango') || modelClean.includes('okavango')) canonicalModel = 'okavango';
-                else if (modelClean.includes('carens')) canonicalModel = 'carens';
-                else if (modelClean.includes('soluto')) canonicalModel = 'soluto';
-                else if (modelClean.includes('8pro') || modelClean.includes('tiggo')) canonicalModel = 'tiggo';
-
-                const ALL_KNOWN_MODELS = ['carens', 'soluto', 'brv', 'x70', 's07', 'okavango', 'tiggo'];
-
-                const filtered = parts.filter(p => {
-                    if (!p.isActive) return false;
-                    if (!rawMake && !rawModel) return true;
-
-                    const nameClean = (p.partName || p.partNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const descClean = (p.description || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const text = `${nameClean} ${descClean}`;
-
-                    // 1. Model Specificity Rule:
-                    const mentionedModel = ALL_KNOWN_MODELS.find(m => text.includes(m));
-                    if (mentionedModel) {
-                        return canonicalModel ? text.includes(canonicalModel) : false;
-                    }
-
-                    // 2. Make Rule:
-                    if (canonicalMake) {
-                        if (canonicalMake === 'jetour' || canonicalMake === 'soueast') {
-                            return text.includes('jetour') || text.includes('soueast') || text.includes('souest');
-                        }
-                        if (canonicalMake === 'chery') {
-                            return text.includes('chery') || text.includes('cherry') || text.includes('tiggo');
-                        }
-                        return text.includes(canonicalMake);
-                    }
-
-                    return true;
-                });
-
-                setInventoryParts(filtered);
+                const activeParts = Array.isArray(parts) ? parts.filter(p => p.isActive !== false) : [];
+                setInventoryParts(activeParts);
             }).catch(() => { }).finally(() => setPartsLoading(false));
         }
-    }, [wo?.branchId, wo?.vehicleId, branchId]);
+    }, [wo?.branchId, branchId]);
 
     const matchGpsDevice = (devices: any[], plate?: string, vin?: string) => {
         if (!plate && !vin) return null;
@@ -761,7 +711,8 @@ const WorkOrderDetail = () => {
     return (
         <div className="space-y-5 animate-fadeInUp pb-56 md:pb-28">
             {/* ── Header ── */}
-            <div className="flex items-start gap-3 flex-wrap">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
                 <button className="btn-icon flex-shrink-0" onClick={() => navigate('/work-orders')} id="back-to-list"><ArrowLeft size={18} /></button>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -782,6 +733,20 @@ const WorkOrderDetail = () => {
                             return null;
                         })()}
                     </p>
+                </div>
+                </div>
+
+                {/* Edit Work Order Button (Top Right) */}
+                <div className="flex items-center gap-2 self-start">
+                    <button
+                        type="button"
+                        id="edit-work-order-btn"
+                        onClick={() => navigate(`/work-orders/edit/${id}`)}
+                        className="btn-secondary !h-10 !px-4 text-xs font-bold uppercase tracking-wider flex items-center gap-2 rounded-xl border border-[var(--border-main)] hover:border-[var(--brand-lime)] hover:text-[var(--brand-lime)] transition-all cursor-pointer shadow-sm group"
+                    >
+                        <Pencil size={14} className="text-[var(--brand-lime)] group-hover:rotate-12 transition-transform" />
+                        Edit Work Order
+                    </button>
                 </div>
             </div>
 
@@ -1122,7 +1087,7 @@ const WorkOrderDetail = () => {
                     </div>
 
                     {/* Parts Section */}
-                    <div className="space-y-4 lg:border-l lg:border-[var(--border-main)]/20 lg:pl-8">
+                    <div className="space-y-4 lg:border-l lg:border-[var(--border-main)]/20 lg:pl-8 relative z-20">
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-semibold" style={{ color: 'var(--text-main)' }}>{t('workOrders.detail.parts')} ({wo.parts.length})</h3>
                             {!['BILLING', 'CANCELLED'].includes(wo.status) && (
@@ -1132,37 +1097,26 @@ const WorkOrderDetail = () => {
                             )}
                         </div>
                         {showPartForm && (
-                            <div className="glass-card p-4 space-y-3">
+                            <div className="glass-card p-4 space-y-3 relative z-30">
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 ml-1">Select Part from Inventory *</label>
-                                    <select
-                                        className="input-field"
-                                        value={selectedInventoryPart?._id || ''}
-                                        onChange={(e) => {
-                                            const part = inventoryParts.find(p => p._id === e.target.value);
-                                            setSelectedInventoryPart(part || null);
-                                            if (part) {
-                                                setPartForm({
-                                                    ...partForm,
-                                                    partName: part.partName,
-                                                    partNumber: part.partNumber,
-                                                    unitCost: part.unitCost,
-                                                    inventoryPartId: part._id,
-                                                    source: 'IN_STOCK',
-                                                });
-                                            }
+                                    <SearchableInventoryPartSelect
+                                        parts={inventoryParts}
+                                        selectedPart={selectedInventoryPart}
+                                        onSelectPart={(part) => {
+                                            setSelectedInventoryPart(part);
+                                            setPartForm({
+                                                ...partForm,
+                                                partName: part.partName,
+                                                partNumber: part.partNumber,
+                                                unitCost: part.unitCost,
+                                                inventoryPartId: part._id,
+                                                source: 'IN_STOCK',
+                                            });
                                         }}
-                                    >
-                                        <option value="">{partsLoading ? 'Loading parts...' : '— Choose a part —'}</option>
-                                        {inventoryParts.map(p => {
-                                            const available = p.quantityOnHand - p.quantityReserved;
-                                            return (
-                                                <option key={p._id} value={p._id}>
-                                                    {p.partName} ({p.partNumber}) — {available > 0 ? `${available} available` : 'OUT OF STOCK'}
-                                                </option>
-                                            );
-                                        })}
-                                    </select>
+                                        loading={partsLoading}
+                                        vehicleObj={wo.vehicleId}
+                                    />
                                 </div>
                                 {selectedInventoryPart && (() => {
                                     const available = selectedInventoryPart.quantityOnHand - selectedInventoryPart.quantityReserved;
@@ -1189,13 +1143,12 @@ const WorkOrderDetail = () => {
                                 </div>
                                 <div className="flex gap-2">
                                     <button className="btn-secondary text-xs flex-1" onClick={() => { setShowPartForm(false); setSelectedInventoryPart(null); }}>{t('common.cancel')}</button>
-                                    <button className="btn-primary text-xs flex-1" disabled={!selectedInventoryPart || actionLoading}
-                                        onClick={() => doAction(async () => {
-                                            await addPart(id!, partForm);
-                                            setShowPartForm(false);
-                                            setSelectedInventoryPart(null);
-                                            setPartForm({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
-                                        })}>
+                                    <button
+                                        type="button"
+                                        className="btn-primary text-xs flex-1"
+                                        disabled={!selectedInventoryPart || actionLoading || !partForm.quantity || partForm.quantity <= 0}
+                                        onClick={() => setShowConfirmAddPartModal(true)}
+                                    >
                                         {actionLoading ? <Loader2 size={14} className="animate-spin" /> : t('common.add')}
                                     </button>
                                 </div>
@@ -1229,12 +1182,12 @@ const WorkOrderDetail = () => {
                         })()}
 
                         {wo.parts.length === 0 ? (
-                            <div className="glass-card p-8 text-center">
+                            <div className="glass-card p-8 text-center relative z-0">
                                 <Package size={36} className="mx-auto mb-2 opacity-20" style={{ color: 'var(--text-dim)' }} />
-                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('workOrders.list.empty')}</p>
+                                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('workOrders.detail.noParts') || 'No parts assigned'}</p>
                             </div>
                         ) : (
-                            <div className="space-y-2">
+                            <div className="space-y-2 relative z-0">
                                 {wo.parts.map((part) => {
                                     const appStatus = (part as any).approvalStatus || 'APPROVED';
                                     const activeRole = (getUserRole() || (user?.role as string) || '').toLowerCase();
@@ -3386,6 +3339,25 @@ const WorkOrderDetail = () => {
                 </div>
             )}
 
+            {/* ── Confirm Add Part Modal ── */}
+            {showConfirmAddPartModal && selectedInventoryPart && (
+                <ConfirmAddPartModal
+                    isOpen={showConfirmAddPartModal}
+                    onClose={() => setShowConfirmAddPartModal(false)}
+                    onConfirm={() => doAction(async () => {
+                        await addPart(id!, partForm);
+                        setShowConfirmAddPartModal(false);
+                        setShowPartForm(false);
+                        setSelectedInventoryPart(null);
+                        setPartForm({ partName: '', quantity: 1, unitCost: 0, source: 'IN_STOCK' });
+                    })}
+                    workOrder={wo}
+                    part={selectedInventoryPart}
+                    quantity={partForm.quantity}
+                    loading={actionLoading}
+                />
+            )}
+
             {/* ── GPS MODAL ── */}
             {showGpsModal && (
                 <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -3712,11 +3684,11 @@ const WorkOrderDetail = () => {
                             {/* Left: OLA WORKSHOP LOGO & SHORT ADDRESS */}
                             <div>
                                 {/* OLA WORKSHOP LOGO */}
-                                <div className="w-36 h-24 bg-black rounded-xl p-2 flex items-center justify-center shadow-md border border-neutral-800 select-none overflow-hidden">
+                                <div className="w-36 h-20 select-none">
                                     <img 
                                         src={workshopLogo} 
                                         alt="Ola Cars Workshop" 
-                                        className="w-full h-full object-contain"
+                                        className="w-full h-full object-contain object-left rounded-lg"
                                     />
                                 </div>
 
@@ -4223,6 +4195,7 @@ const StatusStepper = ({
     const currentPhaseIndex = PHASES.findIndex(p => p.status === normalizedStatus);
     if (normalizedStatus === 'CANCELLED') return null;
 
+    const prevPhase = currentPhaseIndex > 0 ? PHASES[currentPhaseIndex - 1] : null;
     const nextPhase = currentPhaseIndex < PHASES.length - 1 ? PHASES[currentPhaseIndex + 1] : null;
     const isLabourProgressBlocked = nextPhase?.status === 'LABOUR' && hasPendingPartApprovals;
 
@@ -4291,11 +4264,27 @@ const StatusStepper = ({
                     })}
                 </div>
 
-                {/* Right: Progress Action Button */}
-                <div className="min-w-[200px] flex justify-end w-full md:w-auto">
+                {/* Right: Previous & Progress Action Buttons */}
+                <div className="flex items-center justify-end gap-3 w-full md:w-auto flex-wrap">
+                    {prevPhase && (
+                        <button
+                            type="button"
+                            id="prev-step-btn"
+                            disabled={actionLoading}
+                            onClick={async () => {
+                                await onTransition(prevPhase.status, prevPhase.key);
+                            }}
+                            className="btn-secondary !py-2.5 !px-4 text-xs font-bold uppercase tracking-wider flex items-center gap-2 rounded-xl border border-[var(--border-main)] hover:border-white/40 hover:text-white transition-all duration-150 cursor-pointer shadow-sm active:scale-[0.98] disabled:opacity-50"
+                        >
+                            <ArrowLeft size={13} className="stroke-[2.5]" />
+                            Previous: {prevPhase.label}
+                        </button>
+                    )}
+
                     {nextPhase ? (
                         <button
                             type="button"
+                            id="progress-step-btn"
                             disabled={actionLoading || isLabourProgressBlocked}
                             title={isLabourProgressBlocked ? "Cannot progress: Parts are awaiting Workshop Manager approval" : ""}
                             onClick={async () => {

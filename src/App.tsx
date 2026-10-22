@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import WorkOrderList from './pages/WorkOrderList';
 import CreateWorkOrder from './pages/CreateWorkOrder';
 import WorkOrderDetail from './pages/WorkOrderDetail';
+import EditWorkOrder from './pages/EditWorkOrder';
 import SystemPreferences from './pages/SystemPreferences';
 import ManageStaff from './pages/ManageStaff';
 import Inventory from './pages/Inventory';
@@ -65,6 +66,8 @@ function App() {
                             <Route path="/dashboard" element={<Dashboard />} />
                             <Route path="/work-orders" element={<WorkOrderList />} />
                             <Route path="/work-orders/create" element={<CreateWorkOrder />} />
+                            <Route path="/work-orders/edit/:id" element={<EditWorkOrder />} />
+                            <Route path="/work-orders/:id/edit" element={<EditWorkOrder />} />
                             <Route path="/work-orders/:id" element={<WorkOrderDetail />} />
                             <Route path="/manage-staff" element={<ManageStaff />} />
                             <Route path="/inventory" element={<Inventory />} />
