@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -243,6 +244,29 @@ const WorkOrderDetail = () => {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // Lock background scroll when invoice preview modal is open so modal scrolls cleanly
+    useEffect(() => {
+        if (showBillModal) {
+            const originalOverflow = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+            return () => {
+                document.body.style.overflow = originalOverflow;
+            };
+        }
+    }, [showBillModal]);
+
+    // Handle ESC key to dismiss invoice preview modal
+    useEffect(() => {
+        if (!showBillModal) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setShowBillModal(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [showBillModal]);
 
     // Sync customerId whenever selected driver changes
     useEffect(() => {
@@ -3838,14 +3862,33 @@ const WorkOrderDetail = () => {
             )}
 
             {/* ── Service Bill Modal (Printable A4 Invoice Sheet) ── */}
-            {showBillModal && bill && (
+            {showBillModal && bill && createPortal(
                 <div 
                     id="printable-invoice-modal"
-                    className="fixed inset-0 z-[100] flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md overflow-y-auto animate-fadeIn"
+                    className="fixed inset-0 z-[9999] flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 pb-24 md:pb-32 bg-black/85 backdrop-blur-md overflow-y-auto overscroll-contain animate-fadeIn"
                     onClick={() => setShowBillModal(false)}
+                    style={{
+                        scrollbarWidth: 'thin',
+                        scrollbarColor: 'var(--brand-lime, #C8E600) rgba(15, 23, 42, 0.7)',
+                    }}
                 >
-                    {/* Scoped Print CSS Styles */}
+                    {/* Scoped Print & Modal Scrollbar CSS Styles */}
                     <style>{`
+                        #printable-invoice-modal::-webkit-scrollbar {
+                            width: 10px;
+                        }
+                        #printable-invoice-modal::-webkit-scrollbar-track {
+                            background: rgba(15, 23, 42, 0.85);
+                        }
+                        #printable-invoice-modal::-webkit-scrollbar-thumb {
+                            background: #C8E600;
+                            border-radius: 6px;
+                            border: 2px solid rgba(15, 23, 42, 0.85);
+                        }
+                        #printable-invoice-modal::-webkit-scrollbar-thumb:hover {
+                            background: #d8f200;
+                        }
+
                         @media print {
                             body * {
                                 visibility: hidden !important;
@@ -3878,9 +3921,9 @@ const WorkOrderDetail = () => {
                         }
                     `}</style>
 
-                    {/* Modal Floating Toolbar (Hidden on Print) */}
+                    {/* Modal Floating Toolbar (Sticky & Hidden on Print) */}
                     <div 
-                        className="w-full max-w-[850px] mb-3 flex items-center justify-between bg-[#1e293b]/95 border border-white/10 rounded-2xl px-5 py-3 shadow-xl backdrop-blur-md no-print"
+                        className="sticky top-2 sm:top-4 z-50 w-full max-w-[850px] mb-3 flex items-center justify-between bg-[#1e293b]/95 border border-white/10 rounded-2xl px-4 sm:px-5 py-3 shadow-2xl backdrop-blur-md shrink-0 no-print"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center gap-3">
@@ -3937,7 +3980,7 @@ const WorkOrderDetail = () => {
                     {/* The Printable A4 Invoice Paper Container */}
                     <div 
                         id="printable-invoice-paper"
-                        className="w-full max-w-[850px] bg-white text-slate-800 shadow-2xl rounded-2xl p-8 sm:p-12 relative overflow-hidden font-sans border border-slate-200"
+                        className="w-full max-w-[850px] bg-white text-slate-800 shadow-2xl rounded-2xl p-8 sm:p-12 relative font-sans border border-slate-200 shrink-0"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Top-Left Corner Accent / Ribbon */}
@@ -4097,8 +4140,8 @@ const WorkOrderDetail = () => {
                         </div>
 
                         {/* Itemized Table */}
-                        <div className="pt-4">
-                            <table className="w-full text-left text-xs border-collapse">
+                        <div className="pt-4 overflow-x-auto">
+                            <table className="w-full text-left text-xs border-collapse min-w-[550px]">
                                 <thead>
                                     <tr className="bg-[#374151] text-white text-[11px] font-bold uppercase tracking-wider">
                                         <th className="py-2.5 px-3 text-center w-10">#</th>
@@ -4222,7 +4265,8 @@ const WorkOrderDetail = () => {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* ── Edit Part Quantity Modal ── */}
