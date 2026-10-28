@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
-  Receipt, Search, Filter, Eye, DollarSign, X, CheckCircle2, 
-  Clock, AlertCircle, ArrowUpRight, MoreHorizontal, ChevronDown,
-  FileText, Loader2, User, Phone
+  Receipt, Search, Filter, Eye, DollarSign, X, Check, CheckCircle2, 
+  Clock, AlertCircle, AlertTriangle, ArrowUpRight, MoreHorizontal, ChevronDown,
+  FileText, Loader2, User, Phone, Edit3, Plus, Trash2, Save
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
-  getBills, getBillById, approveBill, voidBill,
+  getBills, getBillById, approveBill, updateBill, getTaxProfiles, voidBill,
   type ServiceBill, type BillStatus, type PaymentStatus 
 } from '../services/serviceBillService';
 import { format } from 'date-fns';
+import { getBillingDrivers, type BillingDriver } from '../services/workOrderService';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'gray',
@@ -33,6 +34,59 @@ const ServiceBills: React.FC = () => {
   const [billingTypeFilter, setBillingTypeFilter] = useState<'all' | 'driver' | 'workshop'>('all');
   
   const [selectedBill, setSelectedBill] = useState<ServiceBill | null>(null);
+  const [billToApprove, setBillToApprove] = useState<ServiceBill | null>(null);
+  const [isApproving, setIsApproving] = useState(false);
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingBill, setEditingBill] = useState<ServiceBill | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [billingDrivers, setBillingDrivers] = useState<BillingDriver[]>([]);
+  const [taxProfiles, setTaxProfiles] = useState<any[]>([]);
+  const [driverSearchQuery, setDriverSearchQuery] = useState('');
+  const [isDriverDropdownOpen, setIsDriverDropdownOpen] = useState(false);
+  const driverDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (driverDropdownRef.current && !driverDropdownRef.current.contains(event.target as Node)) {
+        setIsDriverDropdownOpen(false);
+      }
+    };
+    if (isDriverDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDriverDropdownOpen]);
+
+  const [editForm, setEditForm] = useState<{
+    isDriverBilled: boolean;
+    driverId: string;
+    customerId: string;
+    taxRate: number;
+    taxName: string;
+    taxProfileId: string;
+    discount: number;
+    notes: string;
+    lineItems: {
+      type: 'LABOUR' | 'PART' | 'MISC';
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      lineTotal: number;
+    }[];
+  }>({
+    isDriverBilled: false,
+    driverId: '',
+    customerId: '',
+    taxRate: 7,
+    taxName: 'ITBMS',
+    taxProfileId: '',
+    discount: 0,
+    notes: '',
+    lineItems: []
+  });
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -76,9 +130,147 @@ const ServiceBills: React.FC = () => {
     }
   };
 
-  const handleApprove = async (id: string) => {
+  const handleOpenEditModal = async (bill: ServiceBill) => {
+    setEditingBill(bill);
+    const dId = typeof bill.driverId === 'object' && bill.driverId?._id ? bill.driverId._id : (bill.driverId || '');
+    const cId = typeof bill.customerId === 'object' && bill.customerId?._id ? bill.customerId._id : (bill.customerId || '');
+
+    setEditForm({
+      isDriverBilled: !!bill.isDriverBilled,
+      driverId: dId,
+      customerId: cId,
+      taxRate: bill.taxRate ?? 7,
+      taxName: (bill as any).taxName || 'ITBMS',
+      taxProfileId: (bill as any).taxProfileId || '',
+      discount: bill.discount || 0,
+      notes: (bill as any).notes || '',
+      lineItems: (bill.lineItems || []).map(item => ({
+        type: item.type || 'PART',
+        description: item.description || '',
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        lineTotal: item.lineTotal || Math.round((item.quantity || 1) * (item.unitPrice || 0) * 100) / 100
+      }))
+    });
+    setShowEditModal(true);
+    setDriverSearchQuery('');
+    setIsDriverDropdownOpen(false);
+
+    if (billingDrivers.length === 0) {
+      try {
+        const [drivers, taxes] = await Promise.all([
+          getBillingDrivers(),
+          getTaxProfiles()
+        ]);
+        setBillingDrivers(drivers || []);
+        setTaxProfiles(taxes || []);
+      } catch (err) {
+        console.error('Failed to load drivers/tax profiles for edit modal', err);
+      }
+    }
+  };
+
+  const handleLineItemChange = (index: number, field: string, value: any) => {
+    setEditForm(prev => {
+      const updatedItems = [...prev.lineItems];
+      const currentItem = { ...updatedItems[index], [field]: value };
+      if (field === 'quantity' || field === 'unitPrice') {
+        const qty = field === 'quantity' ? Math.max(0, Number(value) || 0) : currentItem.quantity;
+        const price = field === 'unitPrice' ? Math.max(0, Number(value) || 0) : currentItem.unitPrice;
+        currentItem.lineTotal = Math.round(qty * price * 100) / 100;
+      }
+      updatedItems[index] = currentItem;
+      return { ...prev, lineItems: updatedItems };
+    });
+  };
+
+  const handleAddLineItem = () => {
+    setEditForm(prev => ({
+      ...prev,
+      lineItems: [
+        ...prev.lineItems,
+        { type: 'PART', description: '', quantity: 1, unitPrice: 0, lineTotal: 0 }
+      ]
+    }));
+  };
+
+  const handleRemoveLineItem = (index: number) => {
+    if (editForm.lineItems.length <= 1) {
+      toast.error('At least one bill item is required');
+      return;
+    }
+    setEditForm(prev => ({
+      ...prev,
+      lineItems: prev.lineItems.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleDriverChange = (driverId: string) => {
+    const selectedDriver = billingDrivers.find(d => d._id === driverId);
+    setEditForm(prev => ({
+      ...prev,
+      driverId,
+      customerId: selectedDriver?.customerAccount?._id || ''
+    }));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingBill) return;
+
+    if (editForm.lineItems.length === 0) {
+      toast.error('Please add at least one line item');
+      return;
+    }
+
+    for (let i = 0; i < editForm.lineItems.length; i++) {
+      const it = editForm.lineItems[i];
+      if (!it.description?.trim()) {
+        toast.error(`Item #${i + 1} must have a description`);
+        return;
+      }
+      if (it.quantity <= 0) {
+        toast.error(`Item #${i + 1} quantity must be greater than 0`);
+        return;
+      }
+      if (it.unitPrice < 0) {
+        toast.error(`Item #${i + 1} unit price cannot be negative`);
+        return;
+      }
+    }
+
+    if (editForm.isDriverBilled && !editForm.driverId) {
+      toast.error('Please select a driver for driver billing');
+      return;
+    }
+
     try {
-      const updated = await approveBill(id);
+      setIsSavingEdit(true);
+      const updated = await updateBill(editingBill._id, editForm);
+      toast.success('Bill updated successfully');
+      loadBills();
+      if (selectedBill?._id === editingBill._id) {
+        setSelectedBill(updated);
+      }
+      setShowEditModal(false);
+      setEditingBill(null);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update bill');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const editSubtotal = editForm.lineItems.reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0);
+  const editDiscount = Math.min(Number(editForm.discount) || 0, editSubtotal);
+  const editTaxable = Math.max(0, editSubtotal - editDiscount);
+  const editTaxAmount = Math.round(editTaxable * ((Number(editForm.taxRate) || 0) / 100) * 100) / 100;
+  const editTotalAmount = Math.round((editTaxable + editTaxAmount) * 100) / 100;
+
+  const handleConfirmApprove = async () => {
+    if (!billToApprove) return;
+    try {
+      setIsApproving(true);
+      const updated = await approveBill(billToApprove._id);
       if (updated.invoiceNumber) {
         toast.success(
           <div>
@@ -91,11 +283,14 @@ const ServiceBills: React.FC = () => {
         toast.success('Bill approved successfully');
       }
       loadBills();
-      if (selectedBill?._id === id) {
+      if (selectedBill?._id === billToApprove._id) {
         setSelectedBill(updated);
       }
+      setBillToApprove(null);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to approve bill');
+    } finally {
+      setIsApproving(false);
     }
   };
 
@@ -412,7 +607,7 @@ const ServiceBills: React.FC = () => {
                       </button>
                       {bill.status === 'DRAFT' && (
                         <button 
-                          onClick={() => handleApprove(bill._id)}
+                          onClick={() => setBillToApprove(bill)}
                           className="p-2 hover:bg-[var(--bg-input)] rounded-lg transition-colors text-blue-500"
                           title="Approve Bill"
                         >
@@ -632,18 +827,630 @@ const ServiceBills: React.FC = () => {
 
             <div className="p-6 border-t border-[var(--border-main)] flex gap-4 bg-[var(--bg-input)]">
               {selectedBill.status === 'DRAFT' && (
-                <button 
-                  onClick={() => handleApprove(selectedBill._id)}
-                  className="flex-1 btn-primary"
-                >
-                  Approve Bill
-                </button>
+                <>
+                  <button 
+                    onClick={() => handleOpenEditModal(selectedBill)}
+                    className="flex-1 btn-secondary flex items-center justify-center gap-2 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                  >
+                    <Edit3 size={16} />
+                    Edit Bill
+                  </button>
+                  <button 
+                    onClick={() => setBillToApprove(selectedBill)}
+                    className="flex-1 btn-primary"
+                  >
+                    Approve Bill
+                  </button>
+                </>
               )}
               <button 
                 onClick={() => setShowDetailModal(false)}
                 className="flex-1 btn-secondary"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      
+      {/* Edit Bill Modal */}
+      {showEditModal && editingBill && (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
+          <div className="glass-card w-full max-w-4xl p-0 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col border border-white/10 rounded-2xl">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-[var(--border-main)] flex items-center justify-between bg-[var(--bg-input)]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <Edit3 size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    Edit Service Bill <span className="text-[var(--brand-lime)] font-mono">{editingBill.billNumber}</span>
+                  </h2>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Modify billing party, line items, and financial values before final approval
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => !isSavingEdit && setShowEditModal(false)}
+                disabled={isSavingEdit}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors text-[var(--text-muted)] hover:text-white disabled:opacity-40"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Billing Party Section */}
+              <div className="p-5 bg-white/5 rounded-2xl border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-300 flex items-center gap-2">
+                    <User size={15} className="text-[var(--brand-lime)]" /> Billing Assignment
+                  </h3>
+                  <div className="flex items-center gap-2 bg-black/40 p-1 rounded-xl border border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setEditForm(prev => ({ ...prev, isDriverBilled: false }))}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${!editForm.isDriverBilled ? 'bg-[var(--brand-lime)] text-black' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      Workshop Billed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditForm(prev => ({ ...prev, isDriverBilled: true }))}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${editForm.isDriverBilled ? 'bg-[var(--brand-lime)] text-black' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      Driver Billed
+                    </button>
+                  </div>
+                </div>
+
+                {editForm.isDriverBilled ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                    <div className="relative" ref={driverDropdownRef}>
+                      <label className="text-xs font-bold text-gray-300 flex items-center justify-between mb-1.5">
+                        <span>Select Driver <span className="text-red-400">*</span></span>
+                        {editForm.driverId && (() => {
+                          const curr = billingDrivers.find(d => d._id === editForm.driverId);
+                          return curr?.driverId ? (
+                            <span className="text-[10px] text-[var(--brand-lime)] font-mono">
+                              ID: {curr.driverId}
+                            </span>
+                          ) : null;
+                        })()}
+                      </label>
+
+                      {/* Dropdown Trigger Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsDriverDropdownOpen(prev => !prev)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-left flex items-center justify-between transition-all ${
+                          isDriverDropdownOpen
+                            ? 'border-[var(--brand-lime)] ring-1 ring-[var(--brand-lime)] bg-black/60'
+                            : 'border-[var(--border-main)] bg-[var(--bg-input)] hover:border-white/30'
+                        }`}
+                      >
+                        {(() => {
+                          const curr = billingDrivers.find(d => d._id === editForm.driverId);
+                          if (curr) {
+                            return (
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-lg bg-[var(--brand-lime)] text-black flex items-center justify-center font-bold text-xs shrink-0">
+                                  {(curr.fullName || 'D').substring(0, 2).toUpperCase()}
+                                </div>
+                                <div className="truncate">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-sm text-white truncate">{curr.fullName}</span>
+                                    <span className="px-1.5 py-0.5 rounded bg-black/40 text-[10px] font-mono text-[var(--brand-lime)] border border-[var(--brand-lime)]/30">
+                                      {curr.driverId}
+                                    </span>
+                                  </div>
+                                  {curr.phone && (
+                                    <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                                      <Phone size={10} /> {curr.phone}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="flex items-center gap-2 text-gray-400 text-sm">
+                              <User size={16} className="opacity-60" />
+                              <span>Click to search and select a driver...</span>
+                            </div>
+                          );
+                        })()}
+                        <ChevronDown
+                          size={18}
+                          className={`text-gray-400 shrink-0 transition-transform duration-200 ${
+                            isDriverDropdownOpen ? 'rotate-180 text-[var(--brand-lime)]' : ''
+                          }`}
+                        />
+                      </button>
+
+                      {/* Searchable Dropdown Overlay */}
+                      {isDriverDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-2xl bg-[#141414] border border-[var(--border-main)] shadow-2xl p-3 space-y-2.5 backdrop-blur-xl animate-fadeIn">
+                          {/* Search Input Box */}
+                          <div className="relative">
+                            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="text"
+                              autoFocus
+                              value={driverSearchQuery}
+                              onChange={(e) => setDriverSearchQuery(e.target.value)}
+                              placeholder="Search by name, driver ID (OLA-...), phone..."
+                              className="w-full pl-9 pr-8 py-2 bg-[var(--bg-input)] border border-white/10 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[var(--brand-lime)]"
+                            />
+                            {driverSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setDriverSearchQuery('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-0.5"
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Driver Options List */}
+                          <div className="max-h-60 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                            {(() => {
+                              const q = driverSearchQuery.trim().toLowerCase();
+                              const filtered = billingDrivers.filter(d => {
+                                if (!q) return true;
+                                return (
+                                  (d.fullName || '').toLowerCase().includes(q) ||
+                                  (d.driverId || '').toLowerCase().includes(q) ||
+                                  (d.phone || '').toLowerCase().includes(q) ||
+                                  (d.nationalId || '').toLowerCase().includes(q) ||
+                                  (d.customerAccount?.name || '').toLowerCase().includes(q) ||
+                                  (d.customerAccount?.customerId || '').toLowerCase().includes(q)
+                                );
+                              });
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="py-6 text-center text-xs text-gray-400">
+                                    <User size={24} className="mx-auto mb-1.5 opacity-30" />
+                                    <p>No drivers found matching <span className="text-white">"{driverSearchQuery}"</span></p>
+                                  </div>
+                                );
+                              }
+
+                              return filtered.map(driver => {
+                                const isSelected = editForm.driverId === driver._id;
+                                return (
+                                  <button
+                                    key={driver._id}
+                                    type="button"
+                                    onClick={() => {
+                                      handleDriverChange(driver._id);
+                                      setIsDriverDropdownOpen(false);
+                                      setDriverSearchQuery('');
+                                    }}
+                                    className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between gap-3 transition-all ${
+                                      isSelected
+                                        ? 'bg-[var(--brand-lime-alpha)]/20 border border-[var(--brand-lime)]/40 text-white'
+                                        : 'hover:bg-white/5 border border-transparent text-gray-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div
+                                        className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                                          isSelected
+                                            ? 'bg-[var(--brand-lime)] text-black'
+                                            : 'bg-white/10 text-gray-300'
+                                        }`}
+                                      >
+                                        {(driver.fullName || 'D').substring(0, 2).toUpperCase()}
+                                      </div>
+                                      <div className="truncate">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-semibold text-xs text-white truncate">{driver.fullName}</span>
+                                          <span className="px-1.5 py-0.2 rounded bg-black/40 text-[9px] font-mono text-[var(--brand-lime)] border border-[var(--brand-lime)]/20">
+                                            {driver.driverId}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-[10px] text-gray-400 mt-0.5">
+                                          {driver.phone && (
+                                            <span className="flex items-center gap-1">
+                                              <Phone size={9} /> {driver.phone}
+                                            </span>
+                                          )}
+                                          {driver.customerAccount && (
+                                            <span className="truncate opacity-75">
+                                              Acct: {driver.customerAccount.name}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {isSelected && (
+                                      <div className="w-5 h-5 rounded-full bg-[var(--brand-lime)] text-black flex items-center justify-center shrink-0">
+                                        <Check size={12} strokeWidth={3} />
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+
+                          {/* Footer Info */}
+                          <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-gray-500 px-1">
+                            <span>{billingDrivers.length} active drivers available</span>
+                            {editForm.driverId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditForm(prev => ({ ...prev, driverId: '', customerId: '' }));
+                                  setIsDriverDropdownOpen(false);
+                                }}
+                                className="text-red-400 hover:underline"
+                              >
+                                Clear selection
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-gray-300 block mb-1.5">
+                        Linked Customer Billing Account
+                      </label>
+                      <div className="px-3.5 py-2.5 bg-black/40 border border-white/10 rounded-xl min-h-[46px] flex items-center justify-between">
+                        {editForm.driverId ? (
+                          (() => {
+                            const drv = billingDrivers.find(d => d._id === editForm.driverId);
+                            if (drv?.customerAccount) {
+                              return (
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
+                                    <CheckCircle2 size={16} />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-sm text-white">{drv.customerAccount.name}</span>
+                                      <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono text-gray-300">
+                                        {drv.customerAccount.customerId}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                                      Verified Billing Account
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="text-xs text-amber-400 flex items-center gap-2">
+                                <AlertCircle size={14} />
+                                <span>No direct customer account linked — will auto-resolve on save</span>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-xs text-gray-500 italic">Select a driver on the left</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-white/5 rounded-xl border border-white/5 text-xs text-gray-400">
+                    This bill will be absorbed as internal workshop expense under <strong className="text-white">Ola Workshop / Internal</strong>.
+                  </div>
+                )}
+              </div>
+
+              {/* Line Items Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-gray-300 flex items-center gap-2">
+                    <FileText size={15} className="text-[var(--brand-lime)]" /> Bill Items ({editForm.lineItems.length})
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={handleAddLineItem}
+                    className="px-3 py-1.5 rounded-xl border border-[var(--brand-lime)] text-[var(--brand-lime)] hover:bg-[var(--brand-lime)]/10 text-xs font-bold flex items-center gap-1.5 transition-all"
+                  >
+                    <Plus size={14} /> Add Line Item
+                  </button>
+                </div>
+
+                <div className="border border-[var(--border-main)] rounded-2xl overflow-hidden bg-black/20">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-white/5 text-gray-400 uppercase font-semibold">
+                        <tr>
+                          <th className="p-3 w-28">Type</th>
+                          <th className="p-3">Description</th>
+                          <th className="p-3 w-24 text-center">Qty</th>
+                          <th className="p-3 w-32 text-right">Unit Price ($)</th>
+                          <th className="p-3 w-32 text-right">Total ($)</th>
+                          <th className="p-3 w-12 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border-main)]">
+                        {editForm.lineItems.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-white/5 transition-colors">
+                            <td className="p-2.5">
+                              <select
+                                value={item.type}
+                                onChange={(e) => handleLineItemChange(idx, 'type', e.target.value)}
+                                className="w-full px-2 py-1.5 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-lg text-xs focus:outline-none"
+                              >
+                                <option value="PART">PART</option>
+                                <option value="LABOUR">LABOUR</option>
+                                <option value="MISC">MISC</option>
+                              </select>
+                            </td>
+                            <td className="p-2.5">
+                              <input
+                                type="text"
+                                value={item.description}
+                                placeholder="Item description / part name"
+                                onChange={(e) => handleLineItemChange(idx, 'description', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-lg text-xs focus:outline-none focus:border-[var(--brand-lime)]"
+                              />
+                            </td>
+                            <td className="p-2.5">
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={item.quantity}
+                                onChange={(e) => handleLineItemChange(idx, 'quantity', e.target.value)}
+                                className="w-full px-2 py-1.5 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-lg text-xs text-center focus:outline-none"
+                              />
+                            </td>
+                            <td className="p-2.5">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.unitPrice}
+                                onChange={(e) => handleLineItemChange(idx, 'unitPrice', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-lg text-xs text-right focus:outline-none"
+                              />
+                            </td>
+                            <td className="p-2.5 text-right font-bold text-white text-sm">
+                              ${item.lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLineItem(idx)}
+                                className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                                title="Remove Item"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Financial Inputs & Summary Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                {/* Inputs: Tax, Discount, Notes */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-gray-300 block mb-1">
+                        Tax Rate (%)
+                      </label>
+                      <select
+                        value={editForm.taxRate}
+                        onChange={(e) => {
+                          const rate = Number(e.target.value);
+                          const prof = taxProfiles.find(t => t.rate === rate);
+                          setEditForm(prev => ({
+                            ...prev,
+                            taxRate: rate,
+                            taxName: prof?.name || (rate === 7 ? 'ITBMS 7%' : rate === 0 ? 'Exempt' : `Tax ${rate}%`),
+                            taxProfileId: prof?._id || ''
+                          }));
+                        }}
+                        className="w-full px-3 py-2 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl text-xs focus:outline-none"
+                      >
+                        <option value="7">ITBMS 7% (Standard)</option>
+                        <option value="0">0% (Tax Exempt)</option>
+                        <option value="10">10%</option>
+                        <option value="15">15%</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-gray-300 block mb-1">
+                        Discount ($)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editForm.discount}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, discount: Math.max(0, Number(e.target.value) || 0) }))}
+                        className="w-full px-3 py-2 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl text-xs focus:outline-none focus:border-[var(--brand-lime)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-gray-300 block mb-1">
+                      Notes / Remarks
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editForm.notes}
+                      placeholder="Optional notes or invoice terms..."
+                      onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
+                      className="w-full px-3 py-2 bg-[var(--bg-input)] border border-[var(--border-main)] rounded-xl text-xs focus:outline-none resize-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Calculation Preview Summary */}
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2.5 flex flex-col justify-center">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Subtotal</span>
+                    <span className="font-semibold text-white">${editSubtotal.toFixed(2)}</span>
+                  </div>
+                  {editDiscount > 0 && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-gray-400">Discount</span>
+                      <span className="font-semibold text-green-400">-${editDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Tax ({editForm.taxRate}%)</span>
+                    <span className="font-semibold text-orange-400">+${editTaxAmount.toFixed(2)}</span>
+                  </div>
+                  <div className="pt-3 border-t border-white/10 flex justify-between items-center">
+                    <div>
+                      <span className="text-xs uppercase tracking-wider font-bold text-gray-400 block">Total Amount</span>
+                      <span className="text-[10px] text-gray-500">Tax exclusive total</span>
+                    </div>
+                    <span className="text-2xl font-black text-[var(--brand-lime)]">
+                      ${editTotalAmount.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-[var(--border-main)] flex gap-3 bg-[var(--bg-input)]">
+              <button 
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                disabled={isSavingEdit}
+                className="flex-1 btn-secondary disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+                className="flex-1 btn-primary flex items-center justify-center gap-2"
+              >
+                {isSavingEdit ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Saving Changes...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approval Confirmation Modal */}
+      {billToApprove && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+          <div className="glass-card w-full max-w-lg p-0 shadow-2xl overflow-hidden border border-white/10 rounded-2xl">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-[var(--border-main)] flex items-center justify-between bg-[var(--bg-input)]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Confirm Bill Approval</h2>
+                  <p className="text-xs text-[var(--text-muted)]">Irreversible action</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => !isApproving && setBillToApprove(null)} 
+                disabled={isApproving}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors text-[var(--text-muted)] hover:text-white disabled:opacity-40"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              {/* Warning Alert Banner */}
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+                <AlertCircle size={20} className="text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1">
+                  <p className="font-bold text-amber-300">Important Notice:</p>
+                  <p className="text-amber-200/90 leading-relaxed">
+                    Once approved, <strong>no information can be edited</strong>. The bill will be locked, an official workshop invoice will be issued, and accounting ledger entries will be generated permanently.
+                  </p>
+                </div>
+              </div>
+
+              {/* Bill Summary Details */}
+              <div className="p-4 bg-white/5 rounded-xl border border-white/5 space-y-3">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-[var(--text-muted)]">Bill Number</span>
+                  <span className="font-bold text-white font-mono">{billToApprove.billNumber}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-[var(--text-muted)]">Work Order</span>
+                  <span className="font-medium text-white">{billToApprove.workOrderId?.workOrderNumber || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-[var(--text-muted)]">Billed Party</span>
+                  <span className="font-medium text-white text-right">
+                    {billToApprove.isDriverBilled 
+                      ? (billToApprove.driverId?.personalInfo?.fullName || billToApprove.driverId?.fullName || (typeof billToApprove.driverId === 'string' ? billToApprove.driverId : 'Assigned Driver')) 
+                      : 'Ola Workshop'}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-white/10 flex justify-between items-center">
+                  <span className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Total Amount</span>
+                  <span className="text-lg font-black text-[var(--brand-lime)]">${billToApprove.totalAmount.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="p-5 border-t border-[var(--border-main)] flex gap-3 bg-[var(--bg-input)]">
+              <button 
+                onClick={() => setBillToApprove(null)}
+                disabled={isApproving}
+                className="flex-1 btn-secondary disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleConfirmApprove}
+                disabled={isApproving}
+                className="flex-1 btn-primary flex items-center justify-center gap-2"
+              >
+                {isApproving ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Approving...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    <span>Yes, Approve Bill</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

@@ -69,6 +69,11 @@ export const generateBill = async (data: {
   return response.data.data;
 };
 
+export const updateBill = async (id: string, data: any): Promise<ServiceBill> => {
+  const response = await api.put(`/api/service-bills/${id}`, data);
+  return response.data.data;
+};
+
 export const approveBill = async (id: string) => {
   const response = await api.put(`/api/service-bills/${id}/approve`);
   return response.data.data;
