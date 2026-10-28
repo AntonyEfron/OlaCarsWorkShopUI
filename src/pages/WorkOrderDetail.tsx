@@ -3079,7 +3079,7 @@ const WorkOrderDetail = () => {
                                                         </option>
                                                     ))}
                                                     {taxProfiles.length === 0 && (
-                                                        <option value="">ITBMS 7% (7%)</option>
+                                                        <option value="">ITBMS (7%)</option>
                                                     )}
                                                 </select>
                                             </div>
@@ -4223,7 +4223,11 @@ const WorkOrderDetail = () => {
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center text-slate-600">
-                                    <span>{bill.taxName || 'ITBMS 7%'} ({bill.taxRate ?? 7}%)</span>
+                                    <span>{(() => {
+                                        const raw = bill.taxName || 'ITBMS';
+                                        const cleaned = raw.replace(/\(\s*\d+%\s*\)/g, '').replace(/\b\d+%\b/g, '').trim();
+                                        return `${cleaned || 'ITBMS'} (${bill.taxRate ?? 7}%)`;
+                                    })()}</span>
                                     <span className="font-mono text-slate-900 font-semibold">
                                         {Number(bill.taxAmount || 0).toFixed(2)}
                                     </span>
@@ -4236,20 +4240,32 @@ const WorkOrderDetail = () => {
                                         </span>
                                     </div>
                                 )}
-                                <div className="flex justify-between items-center pt-2 border-t border-gray-200 text-slate-900 font-bold text-sm">
-                                    <span>Total</span>
-                                    <span className="font-mono font-black">
-                                        ${Number(bill.totalAmount || 0).toFixed(2)}
-                                    </span>
-                                </div>
+                                {(() => {
+                                    const taxable = Number(bill.subtotal ?? (bill.totalAmount ? (bill.totalAmount - (bill.taxAmount || 0)) : 0));
+                                    const taxAmt = Number(bill.taxAmount || 0);
+                                    const disc = Number(bill.discount || 0);
+                                    // Total amount should be Total Taxable Amount + ITBMS - Discount
+                                    const computedTotal = Number(bill.totalAmount && bill.totalAmount > taxable ? bill.totalAmount : (taxable + taxAmt - disc));
+                                    const balDue = Math.max(0, computedTotal - Number(bill.amountPaid || 0));
+                                    return (
+                                        <>
+                                            <div className="flex justify-between items-center pt-2 border-t border-gray-200 text-slate-900 font-bold text-sm">
+                                                <span>Total</span>
+                                                <span className="font-mono font-black">
+                                                    ${computedTotal.toFixed(2)}
+                                                </span>
+                                            </div>
 
-                                {/* Highlighted Balance Due Box */}
-                                <div className="mt-2.5 p-3 bg-slate-100 rounded-lg flex justify-between items-center border border-slate-200">
-                                    <span className="font-bold text-slate-800 text-sm">Balance Due</span>
-                                    <span className="font-mono font-black text-slate-900 text-base">
-                                        ${Number(Math.max(0, (bill.totalAmount || 0) - (bill.amountPaid || 0))).toFixed(2)}
-                                    </span>
-                                </div>
+                                            {/* Highlighted Balance Due Box */}
+                                            <div className="mt-2.5 p-3 bg-slate-100 rounded-lg flex justify-between items-center border border-slate-200">
+                                                <span className="font-bold text-slate-800 text-sm">Balance Due</span>
+                                                <span className="font-mono font-black text-slate-900 text-base">
+                                                    ${balDue.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
 
