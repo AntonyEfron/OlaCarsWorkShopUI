@@ -210,7 +210,7 @@ const ServiceBills: React.FC = () => {
     setEditForm(prev => ({
       ...prev,
       driverId,
-      customerId: selectedDriver?.customerAccount?._id || ''
+      customerId: selectedDriver?.customer?._id || ''
     }));
   };
 
@@ -1008,9 +1008,9 @@ const ServiceBills: React.FC = () => {
                                   (d.fullName || '').toLowerCase().includes(q) ||
                                   (d.driverId || '').toLowerCase().includes(q) ||
                                   (d.phone || '').toLowerCase().includes(q) ||
-                                  (d.nationalId || '').toLowerCase().includes(q) ||
-                                  (d.customerAccount?.name || '').toLowerCase().includes(q) ||
-                                  (d.customerAccount?.customerId || '').toLowerCase().includes(q)
+                                  (d.email || '').toLowerCase().includes(q) ||
+                                  (d.customer?.name || '').toLowerCase().includes(q) ||
+                                  (d.customer?.customerId || '').toLowerCase().includes(q)
                                 );
                               });
 
@@ -1063,9 +1063,9 @@ const ServiceBills: React.FC = () => {
                                               <Phone size={9} /> {driver.phone}
                                             </span>
                                           )}
-                                          {driver.customerAccount && (
+                                          {driver.customer && (
                                             <span className="truncate opacity-75">
-                                              Acct: {driver.customerAccount.name}
+                                              Acct: {driver.customer.name}
                                             </span>
                                           )}
                                         </div>
@@ -1111,7 +1111,7 @@ const ServiceBills: React.FC = () => {
                         {editForm.driverId ? (
                           (() => {
                             const drv = billingDrivers.find(d => d._id === editForm.driverId);
-                            if (drv?.customerAccount) {
+                            if (drv?.customer) {
                               return (
                                 <div className="flex items-center gap-2.5">
                                   <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
@@ -1119,9 +1119,9 @@ const ServiceBills: React.FC = () => {
                                   </div>
                                   <div>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-bold text-sm text-white">{drv.customerAccount.name}</span>
+                                      <span className="font-bold text-sm text-white">{drv.customer.name}</span>
                                       <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono text-gray-300">
-                                        {drv.customerAccount.customerId}
+                                        {drv.customer.customerId}
                                       </span>
                                     </div>
                                     <span className="text-[10px] text-emerald-400 flex items-center gap-1">
